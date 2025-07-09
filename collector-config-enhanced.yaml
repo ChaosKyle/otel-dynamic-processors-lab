@@ -1,0 +1,167 @@
+# Enhanced Collector Configuration with Resource Detection and Label Strategy
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  
+  # Self-monitoring
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'otel-collector'
+          scrape_interval: 
+          static_configs:
+            - targets: ['0.0.0.0:8888']
+
+processors:
+  # Resource detection for automatic labeling
+  resourcedetection:
+    detectors: [docker, system, process]
+    docker:
+      resource_attributes:
+        host.name:
+          enabled: true
+        os.type:
+          enabled: true
+    system:
+      resource_attributes:
+        host.name:
+          enabled: true
+        host.id:
+          enabled: true
+        os.description:
+          enabled: true
+        os.type:
+          enabled: true
+    process:
+      resource_attributes:
+        process.pid:
+          enabled: true
+        process.executable.name:
+          enabled: true
+        process.command_line:
+          enabled: true
+        process.runtime.name:
+          enabled: true
+        process.runtime.version:
+          enabled: true
+
+  # Enhanced resource attributes
+  resource:
+    attributes:
+      - key: service.name
+        value: 
+        action: upsert
+      - key: service.version
+        value: 
+        action: upsert
+      - key: service.namespace
+        value: 
+        action: upsert
+      - key: deployment.environment
+        value: 
+        action: upsert
+      - key: k8s.cluster.name
+        value: 
+        action: upsert
+      - key: cloud.region
+        value: 
+        action: upsert
+      - key: telemetry.sdk.name
+        value: opentelemetry
+        action: upsert
+      - key: collector.layer
+        value: ingestion
+        action: upsert
+
+  # Advanced attribute manipulation
+  attributes:
+    actions:
+      # Normalize service names
+      - key: service.name
+        pattern: ^(.*)-(dev|staging|prod)$
+        action: extract
+        to_attributes:
+          - key: service.base_name
+            pattern: $1
+          - key: service.environment
+            pattern: $2
+      
+      # Add custom labels for better organization
+      - key: telemetry.layer
+        value: collector
+        action: insert
+      - key: pipeline.stage
+        value: ingestion
+        action: insert
+      - key: data.source
+        value: otel-collector
+        action: insert
+
+  # Sampling for cost control
+  probabilistic_sampler:
+    sampling_percentage: 
+
+  # Batch processing for efficiency
+  batch:
+    send_batch_size: 1024
+    timeout: 10s
+    send_batch_max_size: 2048
+
+  # Memory limiter for stability
+  memory_limiter:
+    limit_mib: 512
+    spike_limit_mib: 128
+
+exporters:
+  # Forward to processor layer
+  otlp/processor:
+    endpoint: otel-processor:4317
+    tls:
+      insecure: true
+    sending_queue:
+      num_consumers: 4
+      queue_size: 100
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+  # Self-monitoring metrics
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    metric_relabeling:
+      - source_labels: [__name__]
+        regex: '.*grpc_io.*'
+        action: drop
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 0.0.0.0:1777
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, resource, attributes, probabilistic_sampler, batch]
+      exporters: [otlp/processor]
+    
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, resourcedetection, resource, attributes, batch]
+      exporters: [otlp/processor]
+  
+  telemetry:
+    logs:
+      level: 
+    metrics:
+      address: 0.0.0.0:8888

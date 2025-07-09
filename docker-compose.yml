@@ -1,0 +1,62 @@
+# docker-compose.yml
+version: '3.8'
+services:
+  # The "Smart" Layer: Processes and filters data
+  otel-processor:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-processor
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./processor-config.yaml:/etc/otelcol-contrib/config.yaml
+    networks:
+      - otel-net
+
+  # The "Dumb" Layer: Receives and forwards data
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./collector-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4317:4317" # Expose OTLP gRPC port to the host
+    depends_on:
+      - otel-processor
+    networks:
+      - otel-net
+
+  # Sample App 1: Generates traces that should PASS the filter
+  telemetrygen-prod:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+    container_name: telemetrygen-prod
+    command:
+      - "traces"
+      - "--rate=1"
+      - "--duration=30m"
+      - "--otlp-insecure"
+      - "--otlp-endpoint=otel-collector:4317"
+      - "--otlp-attributes=environment=\"prod\""
+    depends_on:
+      - otel-collector
+    networks:
+      - otel-net
+
+  # Sample App 2: Generates traces that should BE BLOCKED by the filter
+  telemetrygen-dev:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+    container_name: telemetrygen-dev
+    command:
+      - "traces"
+      - "--rate=1"
+      - "--duration=30m"
+      - "--otlp-insecure"
+      - "--otlp-endpoint=otel-collector:4317"
+      - "--otlp-attributes=environment=\"dev\""
+    depends_on:
+      - otel-collector
+    networks:
+      - otel-net
+
+networks:
+  otel-net:
+    driver: bridge

@@ -1,0 +1,175 @@
+# Enhanced Docker Compose with Grafana Cloud Integration
+version: '3.8'
+
+services:
+  # The "Smart" Layer: Advanced processing and Grafana Cloud export
+  otel-processor:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-processor-enhanced
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    env_file:
+      - .env
+    volumes:
+      - ./processor-config-enhanced.yaml:/etc/otelcol-contrib/config.yaml
+      - ./data:/tmp
+    ports:
+      - "8889:8889"   # Prometheus metrics
+      - "13133:13133" # Health check
+      - "1777:1777"   # pprof
+      - "55679:55679" # zpages
+    networks:
+      - otel-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:13133/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # The "Dumb" Layer: Enhanced ingestion with resource detection
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector-enhanced
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    env_file:
+      - .env
+    volumes:
+      - ./collector-config-enhanced.yaml:/etc/otelcol-contrib/config.yaml
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Collector metrics
+      - "13134:13133" # Health check
+      - "1778:1777"   # pprof
+      - "55680:55679" # zpages
+    depends_on:
+      - otel-processor
+    networks:
+      - otel-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:13133/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Enhanced Sample App 1: Production traces with metrics
+  telemetrygen-prod:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+    container_name: telemetrygen-prod-enhanced
+    command:
+      - "traces"
+      - "--rate=2"
+      - "--duration=60m"
+      - "--otlp-insecure"
+      - "--otlp-endpoint=otel-collector:4317"
+      - "--otlp-attributes=environment=\"prod\",service.name=\"${APP_NAME}-api\",service.version=\"${APP_VERSION}\",deployment.environment=\"${ENVIRONMENT}\""
+    env_file:
+      - .env
+    depends_on:
+      - otel-collector
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # Enhanced Sample App 2: Staging traces (will be processed)
+  telemetrygen-staging:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+    container_name: telemetrygen-staging-enhanced
+    command:
+      - "traces"
+      - "--rate=1"
+      - "--duration=60m"
+      - "--otlp-insecure"
+      - "--otlp-endpoint=otel-collector:4317"
+      - "--otlp-attributes=environment=\"staging\",service.name=\"${APP_NAME}-web\",service.version=\"${APP_VERSION}\",deployment.environment=\"staging\""
+    env_file:
+      - .env
+    depends_on:
+      - otel-collector
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # Sample App 3: Development traces (will be filtered out)
+  telemetrygen-dev:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+    container_name: telemetrygen-dev-enhanced
+    command:
+      - "traces"
+      - "--rate=3"
+      - "--duration=60m"
+      - "--otlp-insecure"
+      - "--otlp-endpoint=otel-collector:4317"
+      - "--otlp-attributes=environment=\"dev\",service.name=\"${APP_NAME}-worker\",service.version=\"${APP_VERSION}\",deployment.environment=\"dev\""
+    env_file:
+      - .env
+    depends_on:
+      - otel-collector
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # Metrics generator for comprehensive monitoring
+  telemetrygen-metrics:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+    container_name: telemetrygen-metrics-enhanced
+    command:
+      - "metrics"
+      - "--rate=10"
+      - "--duration=60m"
+      - "--otlp-insecure"
+      - "--otlp-endpoint=otel-collector:4317"
+      - "--otlp-attributes=environment=\"${ENVIRONMENT}\",service.name=\"${APP_NAME}-metrics\",service.version=\"${APP_VERSION}\""
+    env_file:
+      - .env
+    depends_on:
+      - otel-collector
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # Prometheus for local metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus-local
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - otel-net
+    depends_on:
+      - otel-collector
+      - otel-processor
+
+  # Grafana for local visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana-local
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - otel-net
+    depends_on:
+      - prometheus
+
+volumes:
+  grafana-storage:
+
+networks:
+  otel-net:
+    driver: bridge
+    labels:
+      - "com.example.description=OpenTelemetry Lab Network"
+      - "com.example.environment=${ENVIRONMENT}"

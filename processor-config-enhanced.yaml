@@ -1,0 +1,218 @@
+# Enhanced Processor Configuration with Grafana Cloud Integration
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Resource detection and enhancement
+  resourcedetection:
+    detectors: [docker, system, process]
+    docker:
+      resource_attributes:
+        host.name:
+          enabled: true
+        os.type:
+          enabled: true
+    system:
+      resource_attributes:
+        host.name:
+          enabled: true
+        host.id:
+          enabled: true
+        os.description:
+          enabled: true
+        os.type:
+          enabled: true
+
+  # Enhanced resource attributes for Grafana Cloud
+  resource:
+    attributes:
+      - key: service.name
+        value: 
+        action: upsert
+      - key: service.version
+        value: 
+        action: upsert
+      - key: service.namespace
+        value: 
+        action: upsert
+      - key: deployment.environment
+        value: 
+        action: upsert
+      - key: k8s.cluster.name
+        value: 
+        action: upsert
+      - key: cloud.region
+        value: 
+        action: upsert
+      - key: grafana.cloud.instance
+        value: 
+        action: upsert
+      - key: processor.layer
+        value: smart
+        action: upsert
+
+  # Advanced label strategy for Grafana Cloud
+  attributes:
+    actions:
+      # Create consistent labeling for Grafana Cloud
+      - key: grafana.service.name
+        from_attribute: service.name
+        action: insert
+      - key: grafana.environment
+        from_attribute: deployment.environment
+        action: insert
+      - key: grafana.cluster
+        from_attribute: k8s.cluster.name
+        action: insert
+      - key: grafana.region
+        from_attribute: cloud.region
+        action: insert
+      
+      # Add processing timestamps
+      - key: processor.timestamp
+        value: 
+        action: insert
+      - key: processor.hostname
+        from_attribute: host.name
+        action: insert
+      
+      # Normalize trace attributes for better grouping
+      - key: trace.service.group
+        pattern: ^(.+)-(api|web|worker|db)$
+        from_attribute: service.name
+        action: extract
+        to_attributes:
+          - key: service.type
+            pattern: $2
+          - key: service.base
+            pattern: $1
+
+  # Environment-based filtering (keeps prod, staging; drops dev)
+  filter:
+    error_mode: ignore
+    traces:
+      span:
+        - 'resource.attributes["environment"] == "dev"'
+        - 'resource.attributes["deployment.environment"] == "dev"'
+    metrics:
+      metric:
+        - 'resource.attributes["environment"] == "dev"'
+        - 'resource.attributes["deployment.environment"] == "dev"'
+
+  # Transform metrics for Grafana Cloud format
+  metricstransform:
+    transforms:
+      - include: ".*"
+        match_type: regexp
+        action: update
+        operations:
+          - action: add_label
+            new_label: grafana_instance
+            new_value: 
+          - action: add_label
+            new_label: cluster
+            new_value: 
+          - action: add_label
+            new_label: environment
+            new_value: 
+
+  # Batch processing optimized for Grafana Cloud
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+    send_batch_max_size: 1024
+
+  # Memory management
+  memory_limiter:
+    limit_mib: 1024
+    spike_limit_mib: 256
+
+exporters:
+  # Grafana Cloud Tempo (Traces)
+  otlp/tempo:
+    endpoint: 
+    headers:
+      authorization: "Basic :"
+    tls:
+      insecure: false
+    sending_queue:
+      num_consumers: 4
+      queue_size: 200
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+  # Grafana Cloud Prometheus (Metrics)
+  prometheusremotewrite:
+    endpoint: 
+    headers:
+      authorization: "Basic :"
+    tls:
+      insecure: false
+    timeout: 30s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+    external_labels:
+      cluster: 
+      environment: 
+      region: 
+      instance: 
+
+  # Local debugging
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+  # File export for backup/analysis
+  file:
+    path: /tmp/otel-traces.json
+    rotation:
+      max_megabytes: 100
+      max_days: 3
+      max_backups: 5
+
+  # Prometheus metrics for local monitoring
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    const_labels:
+      cluster: 
+      environment: 
+      service: 
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 0.0.0.0:1777
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, resource, attributes, filter, batch]
+      exporters: [otlp/tempo, debug, file]
+    
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, resource, attributes, filter, metricstransform, batch]
+      exporters: [prometheusremotewrite, prometheus, debug]
+  
+  telemetry:
+    logs:
+      level: 
+    metrics:
+      address: 0.0.0.0:8888

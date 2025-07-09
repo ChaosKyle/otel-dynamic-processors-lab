@@ -1,0 +1,55 @@
+# Environment files
+.env.local
+.env.production
+.env.development
+
+# Data and logs
+data/
+logs/
+*.log
+
+# Backup files
+*.backup
+*.bak
+
+# Docker volumes
+docker-compose.override.yml
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Grafana data
+grafana-storage/
+
+# Prometheus data
+prometheus-data/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Configuration backups
+*-config-*.yaml.backup
+prometheus.yml
+grafana/provisioning/datasources/datasources.yaml
+
+# Local development overrides
+docker-compose.local.yml
+
+# SSL certificates
+*.pem
+*.key
+*.crt
+
+# Build artifacts
+dist/
+build/

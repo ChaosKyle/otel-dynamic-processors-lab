@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'otel-dashboards'
+    orgId: 1
+    folder: 'OpenTelemetry'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
