@@ -1,0 +1,308 @@
+# Grafana Cloud optimized values for otel-dynamic-processors
+
+application:
+  name: "grafana-cloud-app"
+  version: "1.0.0"
+  environment: "production"
+  namespace: "monitoring"
+  cluster: "grafana-cluster"
+  region: "us-west-2"
+
+# Collector configuration optimized for Grafana Cloud
+collector:
+  enabled: true
+  replicaCount: 2
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 75
+  
+  # Grafana Cloud optimized configuration
+  config:
+    resourceDetection:
+      detectors:
+        - k8s_node
+        - k8s_pod
+        - system
+        - process
+      k8s_pod:
+        auth_type: serviceAccount
+        extract:
+          metadata: [name, namespace, uid]
+          annotations:
+            - key: "grafana.com/scrape"
+              from: pod
+            - key: "grafana.com/port"
+              from: pod
+          labels:
+            - key: "app.kubernetes.io/name"
+              from: pod
+            - key: "app.kubernetes.io/component"
+              from: pod
+    
+    # Optimized sampling for Grafana Cloud costs
+    sampling:
+      percentage: 10.0  # 10% sampling to control costs
+    
+    # Grafana Cloud optimized batching
+    batch:
+      send_batch_size: 512
+      timeout: 2s
+      send_batch_max_size: 1024
+    
+    memory_limiter:
+      limit_mib: 1536
+      spike_limit_mib: 384
+
+# Processor configuration optimized for Grafana Cloud
+processor:
+  enabled: true
+  replicaCount: 2
+  
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 80
+  
+  # Grafana Cloud optimized filtering
+  config:
+    filtering:
+      excludeEnvironments:
+        - dev
+        - test
+      excludeServices:
+        - health-check
+        - prometheus-node-exporter
+        - kube-state-metrics
+      excludeUrlPatterns:
+        - ".*/health.*"
+        - ".*/metrics.*"
+        - ".*/actuator/health.*"
+        - ".*/readiness.*"
+        - ".*/liveness.*"
+    
+    # Grafana Cloud specific attributes
+    attributes:
+      serviceNameNormalization:
+        enabled: true
+        pattern: "^(.*)-(dev|staging|prod)$"
+      
+      grafanaLabels:
+        enabled: true
+        cluster: "grafana-cluster"
+        region: "us-west-2"
+    
+    # Metrics transformation for Grafana Cloud
+    metricsTransform:
+      enabled: true
+      standardLabels:
+        - cluster
+        - environment
+        - region
+        - grafana_instance
+        - team
+    
+    # Grafana Cloud optimized batching
+    batch:
+      send_batch_size: 256
+      timeout: 1s
+      send_batch_max_size: 512
+    
+    memory_limiter:
+      limit_mib: 3072
+      spike_limit_mib: 768
+
+# Grafana Cloud integration (main configuration)
+grafanaCloud:
+  enabled: true
+  
+  # Tempo configuration for traces
+  tempo:
+    enabled: true
+    endpoint: "https://tempo-prod-04-eu-west-0.grafana.net:443"
+    auth:
+      existingSecret: "grafana-cloud-auth"
+      instanceIdKey: "instanceId"
+      apiKeyKey: "apiKey"
+  
+  # Prometheus configuration for metrics
+  prometheus:
+    enabled: true
+    endpoint: "https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push"
+    auth:
+      existingSecret: "grafana-cloud-auth"
+      instanceIdKey: "instanceId"
+      apiKeyKey: "apiKey"
+    externalLabels:
+      cluster: "grafana-cluster"
+      environment: "production"
+      region: "us-west-2"
+      team: "platform"
+      grafana_instance: "main"
+  
+  # Loki configuration for logs (optional)
+  loki:
+    enabled: true
+    endpoint: "https://logs-prod-006.grafana.net/loki/api/v1/push"
+    auth:
+      existingSecret: "grafana-cloud-auth"
+      instanceIdKey: "instanceId"
+      apiKeyKey: "apiKey"
+
+# RBAC with Grafana Cloud specific permissions
+rbac:
+  create: true
+  clusterRole:
+    create: true
+    rules:
+      - apiGroups: [""]
+        resources: ["nodes", "pods", "services", "endpoints", "namespaces"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["extensions", "networking.k8s.io"]
+        resources: ["ingresses"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["metrics.k8s.io"]
+        resources: ["nodes", "pods"]
+        verbs: ["get", "list"]
+
+# Service account with Grafana Cloud annotations
+serviceAccount:
+  create: true
+  annotations:
+    grafana.com/service-account: "otel-collector"
+    grafana.com/instance-id: "main"
+
+# Enhanced monitoring for Grafana Cloud
+monitoring:
+  serviceMonitor:
+    enabled: true
+    namespace: "monitoring"
+    interval: 30s
+    scrapeTimeout: 10s
+    labels:
+      release: prometheus
+      grafana.com/scrape: "true"
+  
+  prometheusRules:
+    enabled: true
+    namespace: "monitoring"
+    labels:
+      release: prometheus
+    rules:
+      - alert: GrafanaCloudExportFailed
+        expr: increase(otelcol_exporter_send_failed_spans_total{exporter="otlp/tempo"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Grafana Cloud Tempo export failed"
+          description: "Failed to export spans to Grafana Cloud Tempo"
+      
+      - alert: GrafanaCloudMetricsExportFailed
+        expr: increase(otelcol_exporter_send_failed_metric_points_total{exporter="prometheusremotewrite"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Grafana Cloud Prometheus export failed"
+          description: "Failed to export metrics to Grafana Cloud Prometheus"
+      
+      - alert: GrafanaCloudHighLatency
+        expr: otelcol_exporter_queue_size{exporter=~"otlp/tempo|prometheusremotewrite"} > 1000
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High queue size for Grafana Cloud export"
+          description: "Export queue size to Grafana Cloud is high"
+
+# Security configuration
+security:
+  podSecurityStandards:
+    enforce: "restricted"
+    audit: "restricted"
+    warn: "restricted"
+  
+  networkPolicy:
+    enabled: true
+    ingress:
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                name: applications
+        ports:
+          - protocol: TCP
+            port: 4317
+          - protocol: TCP
+            port: 4318
+    egress:
+      - to: []
+        ports:
+          - protocol: TCP
+            port: 443  # HTTPS for Grafana Cloud
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                name: kube-system
+        ports:
+          - protocol: TCP
+            port: 53
+          - protocol: UDP
+            port: 53
+
+# Persistence for backup exports
+persistence:
+  enabled: true
+  storageClass: "fast-ssd"
+  accessMode: ReadWriteOnce
+  size: 20Gi
+  annotations:
+    grafana.com/backup: "true"
+
+# Common labels for Grafana Cloud
+commonLabels:
+  environment: production
+  team: platform
+  grafana.com/instance: "main"
+  grafana.com/cluster: "grafana-cluster"
+  app.kubernetes.io/part-of: observability
+
+commonAnnotations:
+  grafana.com/managed-by: "helm"
+  grafana.com/scrape: "true"
+
+# Disable telemetry generators (not needed with Grafana Cloud)
+telemetryGenerators:
+  enabled: false
+
+# Disable local Prometheus and Grafana (using Grafana Cloud)
+prometheus:
+  enabled: false
+
+grafana:
+  enabled: false

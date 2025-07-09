@@ -1,0 +1,304 @@
+# Production values for otel-dynamic-processors
+
+application:
+  name: "production-app"
+  version: "1.0.0"
+  environment: "production"
+  namespace: "applications"
+  cluster: "prod-cluster"
+  region: "us-west-2"
+
+# Collector configuration (ingestion layer)
+collector:
+  enabled: true
+  replicaCount: 3
+  
+  # Production resource limits
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+  
+  # Enable autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  # Enhanced resource detection
+  config:
+    resourceDetection:
+      detectors:
+        - k8s_node
+        - k8s_pod
+        - system
+        - process
+        - env
+      k8s_pod:
+        auth_type: serviceAccount
+        extract:
+          metadata: [name, namespace, uid, start_time]
+          annotations:
+            - key: "deployment.kubernetes.io/revision"
+              from: pod
+            - key: "app.kubernetes.io/version"
+              from: pod
+          labels:
+            - key: "app.kubernetes.io/name"
+              from: pod
+            - key: "app.kubernetes.io/component"
+              from: pod
+            - key: "app.kubernetes.io/part-of"
+              from: pod
+    
+    # Production sampling
+    sampling:
+      percentage: 5.0  # 5% sampling for high-volume production
+    
+    # Optimized batching
+    batch:
+      send_batch_size: 2048
+      timeout: 5s
+      send_batch_max_size: 4096
+    
+    # Memory management
+    memory_limiter:
+      limit_mib: 3072
+      spike_limit_mib: 768
+      check_interval: 1s
+
+# Processor configuration (smart processing layer)
+processor:
+  enabled: true
+  replicaCount: 2
+  
+  # Production resource limits
+  resources:
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+    requests:
+      cpu: 2000m
+      memory: 4Gi
+  
+  # Enable autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+  
+  # Production filtering
+  config:
+    filtering:
+      excludeEnvironments:
+        - dev
+        - test
+        - staging
+      excludeServices:
+        - health-check
+        - debug-service
+        - chaos-monkey
+        - load-tester
+      excludeUrlPatterns:
+        - ".*/health.*"
+        - ".*/metrics.*"
+        - ".*/debug.*"
+        - ".*/actuator.*"
+    
+    # Advanced attribute transformation
+    attributes:
+      serviceNameNormalization:
+        enabled: true
+        pattern: "^(.*)-(dev|staging|prod)$"
+      
+      grafanaLabels:
+        enabled: true
+        cluster: "prod-cluster"
+        region: "us-west-2"
+    
+    # Metrics transformation
+    metricsTransform:
+      enabled: true
+      standardLabels:
+        - cluster
+        - environment
+        - region
+        - team
+        - cost_center
+    
+    # Production batching
+    batch:
+      send_batch_size: 1024
+      timeout: 2s
+      send_batch_max_size: 2048
+    
+    # Memory management
+    memory_limiter:
+      limit_mib: 6144
+      spike_limit_mib: 1536
+      check_interval: 1s
+
+# Grafana Cloud integration
+grafanaCloud:
+  enabled: true
+  
+  tempo:
+    enabled: true
+    endpoint: "https://tempo-prod-04-eu-west-0.grafana.net:443"
+    auth:
+      existingSecret: "grafana-cloud-auth"
+      instanceIdKey: "instanceId"
+      apiKeyKey: "apiKey"
+  
+  prometheus:
+    enabled: true
+    endpoint: "https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push"
+    auth:
+      existingSecret: "grafana-cloud-auth"
+      instanceIdKey: "instanceId"
+      apiKeyKey: "apiKey"
+    externalLabels:
+      cluster: "prod-cluster"
+      environment: "production"
+      region: "us-west-2"
+      team: "platform"
+      cost_center: "engineering"
+
+# RBAC configuration
+rbac:
+  create: true
+  clusterRole:
+    create: true
+    rules:
+      - apiGroups: [""]
+        resources: ["nodes", "pods", "services", "endpoints", "namespaces"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["extensions"]
+        resources: ["ingresses"]
+        verbs: ["get", "list", "watch"]
+
+# Service account
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/otel-collector-role"
+
+# Monitoring configuration
+monitoring:
+  serviceMonitor:
+    enabled: true
+    namespace: "monitoring"
+    interval: 30s
+    scrapeTimeout: 10s
+    labels:
+      release: prometheus
+      team: platform
+  
+  prometheusRules:
+    enabled: true
+    namespace: "monitoring"
+    labels:
+      release: prometheus
+      team: platform
+    rules:
+      - alert: OTelCollectorDown
+        expr: up{job="otel-collector"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "OpenTelemetry Collector is down"
+          description: "OpenTelemetry Collector has been down for more than 5 minutes"
+      
+      - alert: OTelProcessorHighMemory
+        expr: process_resident_memory_bytes{job="otel-processor"} > 6000000000
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "OpenTelemetry Processor high memory usage"
+          description: "OpenTelemetry Processor memory usage is above 6GB"
+      
+      - alert: OTelCollectorHighCPU
+        expr: rate(process_cpu_seconds_total{job="otel-collector"}[5m]) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "OpenTelemetry Collector high CPU usage"
+          description: "OpenTelemetry Collector CPU usage is above 80%"
+
+# Security configuration
+security:
+  podSecurityStandards:
+    enforce: "restricted"
+    audit: "restricted"
+    warn: "restricted"
+  
+  networkPolicy:
+    enabled: true
+    ingress:
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                name: applications
+        ports:
+          - protocol: TCP
+            port: 4317
+          - protocol: TCP
+            port: 4318
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                name: monitoring
+        ports:
+          - protocol: TCP
+            port: 8888
+          - protocol: TCP
+            port: 8889
+    egress:
+      - to: []
+        ports:
+          - protocol: TCP
+            port: 443  # HTTPS egress
+          - protocol: TCP
+            port: 53   # DNS
+          - protocol: UDP
+            port: 53   # DNS
+
+# Persistence (for file exports)
+persistence:
+  enabled: true
+  storageClass: "gp3"
+  accessMode: ReadWriteOnce
+  size: 50Gi
+  annotations:
+    volume.beta.kubernetes.io/storage-provisioner: "ebs.csi.aws.com"
+
+# Common labels and annotations
+commonLabels:
+  environment: production
+  team: platform
+  cost-center: engineering
+  app.kubernetes.io/part-of: observability
+
+commonAnnotations:
+  deployment.kubernetes.io/revision: "1"
+  managed-by: helm
+
+# Disable telemetry generators in production
+telemetryGenerators:
+  enabled: false

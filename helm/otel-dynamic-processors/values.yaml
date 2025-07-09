@@ -1,0 +1,469 @@
+# Default values for otel-dynamic-processors
+# This is a YAML-formatted file.
+
+# Global configuration
+global:
+  # Image registry
+  imageRegistry: ""
+  # Image pull secrets
+  imagePullSecrets: []
+  # Storage class for persistent volumes
+  storageClass: ""
+
+# Common labels applied to all resources
+commonLabels: {}
+
+# Common annotations applied to all resources
+commonAnnotations: {}
+
+# Collector configuration (ingestion layer)
+collector:
+  enabled: true
+  name: otel-collector
+  
+  # Image configuration
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 2
+  
+  # Resource limits and requests
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    ports:
+      otlp-grpc: 4317
+      otlp-http: 4318
+      metrics: 8888
+      health: 13133
+  
+  # Ingress configuration
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts: []
+    tls: []
+  
+  # Autoscaling configuration
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+  
+  # Pod configuration
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    fsGroup: 10001
+  
+  # Container security context
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 10001
+    capabilities:
+      drop:
+        - ALL
+  
+  # Node selection
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  # Liveness and readiness probes
+  livenessProbe:
+    httpGet:
+      path: /
+      port: health
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /
+      port: health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  
+  # OpenTelemetry configuration
+  config:
+    # Resource detection settings
+    resourceDetection:
+      detectors:
+        - k8s_node
+        - k8s_pod
+        - system
+        - process
+        - env
+      k8s_node:
+        auth_type: serviceAccount
+        node_from_env_var: KUBE_NODE_NAME
+      k8s_pod:
+        auth_type: serviceAccount
+        extract:
+          metadata: [name, namespace, uid, start_time]
+          annotations: 
+            - key: "*"
+              from: pod
+          labels:
+            - key: "*"
+              from: pod
+    
+    # Sampling configuration
+    sampling:
+      percentage: 1.0
+    
+    # Batch processing
+    batch:
+      send_batch_size: 1024
+      timeout: 10s
+      send_batch_max_size: 2048
+    
+    # Memory limiter
+    memory_limiter:
+      limit_mib: 1024
+      spike_limit_mib: 256
+      check_interval: 1s
+
+# Processor configuration (smart processing layer)
+processor:
+  enabled: true
+  name: otel-processor
+  
+  # Image configuration
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 2
+  
+  # Resource limits and requests
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    ports:
+      otlp-grpc: 4317
+      otlp-http: 4318
+      metrics: 8889
+      health: 13133
+  
+  # Autoscaling configuration
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+  
+  # Pod configuration
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    fsGroup: 10001
+  
+  # Container security context
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 10001
+    capabilities:
+      drop:
+        - ALL
+  
+  # Node selection
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  # Liveness and readiness probes
+  livenessProbe:
+    httpGet:
+      path: /
+      port: health
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /
+      port: health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  
+  # OpenTelemetry configuration
+  config:
+    # Advanced filtering
+    filtering:
+      # Environments to exclude
+      excludeEnvironments:
+        - dev
+        - test
+      # Services to exclude
+      excludeServices: []
+      # URL patterns to exclude
+      excludeUrlPatterns:
+        - ".*/health.*"
+        - ".*/metrics.*"
+    
+    # Attribute transformation
+    attributes:
+      # Service name normalization
+      serviceNameNormalization:
+        enabled: true
+        pattern: "^(.*)-(dev|staging|prod)$"
+      
+      # Custom labels for Grafana Cloud
+      grafanaLabels:
+        enabled: true
+        instanceId: ""  # Set via secret
+        cluster: ""     # Set via values
+        region: ""      # Set via values
+    
+    # Metrics transformation
+    metricsTransform:
+      enabled: true
+      # Add standard labels to all metrics
+      standardLabels:
+        - cluster
+        - environment
+        - region
+    
+    # Batch processing
+    batch:
+      send_batch_size: 512
+      timeout: 5s
+      send_batch_max_size: 1024
+    
+    # Memory limiter
+    memory_limiter:
+      limit_mib: 2048
+      spike_limit_mib: 512
+      check_interval: 1s
+
+# Grafana Cloud configuration
+grafanaCloud:
+  enabled: false
+  
+  # Tempo configuration
+  tempo:
+    enabled: false
+    endpoint: ""
+    # Authentication via secret
+    auth:
+      existingSecret: ""
+      instanceIdKey: "instanceId"
+      apiKeyKey: "apiKey"
+  
+  # Prometheus configuration
+  prometheus:
+    enabled: false
+    endpoint: ""
+    # Authentication via secret
+    auth:
+      existingSecret: ""
+      instanceIdKey: "instanceId"
+      apiKeyKey: "apiKey"
+    # External labels
+    externalLabels:
+      cluster: ""
+      environment: ""
+      region: ""
+  
+  # Loki configuration
+  loki:
+    enabled: false
+    endpoint: ""
+    # Authentication via secret
+    auth:
+      existingSecret: ""
+      instanceIdKey: "instanceId"
+      apiKeyKey: "apiKey"
+
+# Application configuration
+application:
+  name: "otel-dynamic-processors-lab"
+  version: "1.0.0"
+  environment: "production"
+  namespace: "monitoring"
+  cluster: "kubernetes"
+  region: "us-west-2"
+
+# Telemetry generators (for testing)
+telemetryGenerators:
+  enabled: false
+  
+  # Production traces
+  prod:
+    enabled: true
+    rate: 2
+    environment: "prod"
+    serviceName: "test-service-api"
+  
+  # Staging traces
+  staging:
+    enabled: true
+    rate: 1
+    environment: "staging"
+    serviceName: "test-service-web"
+  
+  # Development traces (will be filtered out)
+  dev:
+    enabled: true
+    rate: 3
+    environment: "dev"
+    serviceName: "test-service-worker"
+  
+  # Metrics generator
+  metrics:
+    enabled: true
+    rate: 10
+    environment: "prod"
+    serviceName: "test-metrics-service"
+
+# RBAC configuration
+rbac:
+  # Create RBAC resources
+  create: true
+  
+  # Cluster role for resource detection
+  clusterRole:
+    create: true
+    rules:
+      - apiGroups: [""]
+        resources: ["nodes", "pods", "services", "endpoints", "namespaces"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments", "replicasets"]
+        verbs: ["get", "list", "watch"]
+
+# Service account configuration
+serviceAccount:
+  # Create service account
+  create: true
+  # Service account name
+  name: ""
+  # Annotations for service account
+  annotations: {}
+  # Automount service account token
+  automountServiceAccountToken: true
+
+# Monitoring configuration
+monitoring:
+  # Enable ServiceMonitor for Prometheus
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    annotations: {}
+  
+  # Prometheus rules
+  prometheusRules:
+    enabled: false
+    namespace: ""
+    labels: {}
+    annotations: {}
+    rules: []
+
+# Persistence configuration
+persistence:
+  # Enable persistent storage
+  enabled: false
+  # Storage class
+  storageClass: ""
+  # Access mode
+  accessMode: ReadWriteOnce
+  # Storage size
+  size: 10Gi
+  # Annotations
+  annotations: {}
+
+# Security configuration
+security:
+  # Pod security standards
+  podSecurityStandards:
+    enforce: "restricted"
+    audit: "restricted"
+    warn: "restricted"
+  
+  # Network policies
+  networkPolicy:
+    enabled: false
+    ingress: []
+    egress: []
+
+# Local development dependencies
+prometheus:
+  enabled: false
+  server:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+grafana:
+  enabled: false
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  
+  # Grafana configuration
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
+      serve_from_sub_path: true
+  
+  # Datasources
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus-server:80
+          isDefault: true

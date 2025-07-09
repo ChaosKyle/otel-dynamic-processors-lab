@@ -1,0 +1,36 @@
+{{- if .Values.collector.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "otel-dynamic-processors.collector.fullname" . }}
+  labels:
+    {{- include "otel-dynamic-processors.collector.labels" . | nindent 4 }}
+    {{- with .Values.commonLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.collector.service.type }}
+  ports:
+    - port: {{ index .Values.collector.service.ports "otlp-grpc" }}
+      targetPort: otlp-grpc
+      protocol: TCP
+      name: otlp-grpc
+    - port: {{ index .Values.collector.service.ports "otlp-http" }}
+      targetPort: otlp-http
+      protocol: TCP
+      name: otlp-http
+    - port: {{ .Values.collector.service.ports.metrics }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    - port: {{ .Values.collector.service.ports.health }}
+      targetPort: health
+      protocol: TCP
+      name: health
+  selector:
+    {{- include "otel-dynamic-processors.collector.selectorLabels" . | nindent 4 }}
+{{- end }}

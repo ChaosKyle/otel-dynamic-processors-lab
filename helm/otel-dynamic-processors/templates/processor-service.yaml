@@ -1,0 +1,36 @@
+{{- if .Values.processor.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "otel-dynamic-processors.processor.fullname" . }}
+  labels:
+    {{- include "otel-dynamic-processors.processor.labels" . | nindent 4 }}
+    {{- with .Values.commonLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.processor.service.type }}
+  ports:
+    - port: {{ index .Values.processor.service.ports "otlp-grpc" }}
+      targetPort: otlp-grpc
+      protocol: TCP
+      name: otlp-grpc
+    - port: {{ index .Values.processor.service.ports "otlp-http" }}
+      targetPort: otlp-http
+      protocol: TCP
+      name: otlp-http
+    - port: {{ .Values.processor.service.ports.metrics }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    - port: {{ .Values.processor.service.ports.health }}
+      targetPort: health
+      protocol: TCP
+      name: health
+  selector:
+    {{- include "otel-dynamic-processors.processor.selectorLabels" . | nindent 4 }}
+{{- end }}

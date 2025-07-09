@@ -1,0 +1,35 @@
+apiVersion: v2
+name: otel-dynamic-processors
+description: Advanced OpenTelemetry Dynamic Processors with Grafana Cloud Integration
+type: application
+version: 1.0.0
+appVersion: "latest"
+home: https://github.com/ChaosKyle/otel-dynamic-processors-lab
+sources:
+  - https://github.com/ChaosKyle/otel-dynamic-processors-lab
+maintainers:
+  - name: ChaosKyle
+    url: https://github.com/ChaosKyle
+keywords:
+  - opentelemetry
+  - observability
+  - monitoring
+  - grafana
+  - prometheus
+  - telemetry
+  - devops
+  - sre
+annotations:
+  category: Analytics
+  licenses: MIT
+# Optional dependencies can be added using:
+# helm dependency update
+# dependencies:
+#   - name: prometheus
+#     version: "25.8.0"
+#     repository: "https://prometheus-community.github.io/helm-charts"
+#     condition: prometheus.enabled
+#   - name: grafana
+#     version: "7.0.19"
+#     repository: "https://grafana.github.io/helm-charts"
+#     condition: grafana.enabled

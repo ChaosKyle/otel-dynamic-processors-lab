@@ -1,0 +1,255 @@
+# Development values for otel-dynamic-processors
+
+application:
+  name: "dev-app"
+  version: "dev"
+  environment: "development"
+  namespace: "development"
+  cluster: "dev-cluster"
+  region: "us-east-1"
+
+# Collector configuration (minimal for development)
+collector:
+  enabled: true
+  replicaCount: 1
+  
+  # Development resource limits
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  
+  # Disable autoscaling in development
+  autoscaling:
+    enabled: false
+  
+  # Basic resource detection
+  config:
+    resourceDetection:
+      detectors:
+        - k8s_pod
+        - system
+        - process
+    
+    # No sampling in development (keep all traces)
+    sampling:
+      percentage: 100.0
+    
+    # Smaller batches for faster feedback
+    batch:
+      send_batch_size: 128
+      timeout: 1s
+      send_batch_max_size: 256
+    
+    # Lower memory limits
+    memory_limiter:
+      limit_mib: 512
+      spike_limit_mib: 128
+      check_interval: 1s
+
+# Processor configuration (minimal for development)
+processor:
+  enabled: true
+  replicaCount: 1
+  
+  # Development resource limits
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+  
+  # Disable autoscaling in development
+  autoscaling:
+    enabled: false
+  
+  # Minimal filtering (keep most data for debugging)
+  config:
+    filtering:
+      excludeEnvironments: []  # Keep all environments
+      excludeServices:
+        - health-check  # Only exclude health checks
+      excludeUrlPatterns:
+        - ".*/health.*"
+    
+    # Basic attribute transformation
+    attributes:
+      serviceNameNormalization:
+        enabled: true
+        pattern: "^(.*)-(dev|staging|prod)$"
+      
+      grafanaLabels:
+        enabled: false  # Disable Grafana labels in dev
+    
+    # Disable metrics transformation in development
+    metricsTransform:
+      enabled: false
+    
+    # Faster batching for development
+    batch:
+      send_batch_size: 64
+      timeout: 500ms
+      send_batch_max_size: 128
+    
+    # Lower memory limits
+    memory_limiter:
+      limit_mib: 1024
+      spike_limit_mib: 256
+      check_interval: 1s
+
+# Disable Grafana Cloud in development
+grafanaCloud:
+  enabled: false
+
+# RBAC configuration (minimal)
+rbac:
+  create: true
+  clusterRole:
+    create: true
+    rules:
+      - apiGroups: [""]
+        resources: ["nodes", "pods", "services", "namespaces"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments", "replicasets"]
+        verbs: ["get", "list", "watch"]
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+
+# Monitoring configuration (basic)
+monitoring:
+  serviceMonitor:
+    enabled: true
+    namespace: "monitoring"
+    interval: 60s  # Less frequent scraping
+    scrapeTimeout: 30s
+    labels:
+      release: prometheus
+      environment: development
+  
+  prometheusRules:
+    enabled: false  # Disable alerting in development
+
+# Security configuration (relaxed for development)
+security:
+  podSecurityStandards:
+    enforce: "baseline"
+    audit: "restricted"
+    warn: "restricted"
+  
+  networkPolicy:
+    enabled: false  # Disable network policies in development
+
+# Disable persistence in development
+persistence:
+  enabled: false
+
+# Common labels and annotations
+commonLabels:
+  environment: development
+  team: platform
+  app.kubernetes.io/part-of: observability
+
+commonAnnotations:
+  deployment.kubernetes.io/revision: "1"
+  managed-by: helm
+
+# Enable telemetry generators for testing
+telemetryGenerators:
+  enabled: true
+  
+  prod:
+    enabled: true
+    rate: 1
+    environment: "prod"
+    serviceName: "test-service-api"
+  
+  staging:
+    enabled: true
+    rate: 1
+    environment: "staging"
+    serviceName: "test-service-web"
+  
+  dev:
+    enabled: true
+    rate: 2
+    environment: "dev"
+    serviceName: "test-service-worker"
+  
+  metrics:
+    enabled: true
+    rate: 5
+    environment: "dev"
+    serviceName: "test-metrics-service"
+
+# Enable local Prometheus and Grafana for development
+prometheus:
+  enabled: true
+  server:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    persistentVolume:
+      enabled: false
+
+grafana:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  
+  persistence:
+    enabled: false
+  
+  # Development admin credentials
+  adminUser: admin
+  adminPassword: admin123
+  
+  # Grafana configuration
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
+      serve_from_sub_path: true
+    auth.anonymous:
+      enabled: true
+      org_role: Admin
+  
+  # Datasources for development
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus-server:80
+          isDefault: true
+          editable: true
+        - name: OTel Collector Metrics
+          type: prometheus
+          access: proxy
+          url: http://otel-dynamic-processors-otel-collector:8888
+          editable: true
+        - name: OTel Processor Metrics
+          type: prometheus
+          access: proxy
+          url: http://otel-dynamic-processors-otel-processor:8889
+          editable: true

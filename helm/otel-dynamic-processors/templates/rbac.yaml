@@ -1,0 +1,41 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "otel-dynamic-processors.clusterRoleName" . }}
+  labels:
+    {{- include "otel-dynamic-processors.labels" . | nindent 4 }}
+    {{- with .Values.commonLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+rules:
+{{- with .Values.rbac.clusterRole.rules }}
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "otel-dynamic-processors.clusterRoleBindingName" . }}
+  labels:
+    {{- include "otel-dynamic-processors.labels" . | nindent 4 }}
+    {{- with .Values.commonLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "otel-dynamic-processors.clusterRoleName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "otel-dynamic-processors.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

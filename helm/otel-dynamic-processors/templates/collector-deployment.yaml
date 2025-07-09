@@ -1,0 +1,137 @@
+{{- if .Values.collector.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "otel-dynamic-processors.collector.fullname" . }}
+  labels:
+    {{- include "otel-dynamic-processors.collector.labels" . | nindent 4 }}
+    {{- with .Values.commonLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.collector.autoscaling.enabled }}
+  replicas: {{ .Values.collector.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "otel-dynamic-processors.collector.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/collector-configmap.yaml") . | sha256sum }}
+        {{- with .Values.collector.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "otel-dynamic-processors.collector.selectorLabels" . | nindent 8 }}
+        {{- with .Values.collector.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "otel-dynamic-processors.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.collector.podSecurityContext | nindent 8 }}
+      containers:
+        - name: otel-collector
+          securityContext:
+            {{- toYaml .Values.collector.securityContext | nindent 12 }}
+          image: {{ include "otel-dynamic-processors.collector.image" . }}
+          imagePullPolicy: {{ .Values.collector.image.pullPolicy }}
+          args:
+            - --config=/etc/otelcol-contrib/config.yaml
+          ports:
+            - name: otlp-grpc
+              containerPort: {{ index .Values.collector.service.ports "otlp-grpc" }}
+              protocol: TCP
+            - name: otlp-http
+              containerPort: {{ index .Values.collector.service.ports "otlp-http" }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.collector.service.ports.metrics }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.collector.service.ports.health }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.collector.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.collector.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.collector.resources | nindent 12 }}
+          env:
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: KUBE_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: KUBE_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KUBE_POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: KUBE_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: APP_NAME
+              value: {{ .Values.application.name }}
+            - name: APP_VERSION
+              value: {{ .Values.application.version }}
+            - name: ENVIRONMENT
+              value: {{ .Values.application.environment }}
+            - name: SERVICE_NAMESPACE
+              value: {{ .Values.application.namespace }}
+            - name: CLUSTER_NAME
+              value: {{ .Values.application.cluster }}
+            - name: REGION
+              value: {{ .Values.application.region }}
+            - name: METRICS_SCRAPE_INTERVAL
+              value: "15s"
+            - name: TRACES_SAMPLING_RATE
+              value: {{ .Values.collector.config.sampling.percentage | quote }}
+            - name: LOGS_LEVEL
+              value: "info"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol-contrib
+              readOnly: true
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: /tmp
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "otel-dynamic-processors.collector.fullname" . }}-config
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "otel-dynamic-processors.collector.fullname" . }}-data
+        {{- end }}
+      {{- with .Values.collector.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.collector.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.collector.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,277 @@
+{{- if .Values.processor.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "otel-dynamic-processors.processor.fullname" . }}-config
+  labels:
+    {{- include "otel-dynamic-processors.processor.labels" . | nindent 4 }}
+    {{- with .Values.commonLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:{{ index .Values.processor.service.ports "otlp-grpc" }}
+          http:
+            endpoint: 0.0.0.0:{{ index .Values.processor.service.ports "otlp-http" }}
+
+    processors:
+      # Resource detection and enhancement
+      resourcedetection:
+        detectors: [k8s_node, k8s_pod, system, process]
+        k8s_node:
+          auth_type: serviceAccount
+          node_from_env_var: KUBE_NODE_NAME
+        k8s_pod:
+          auth_type: serviceAccount
+          extract:
+            metadata: [name, namespace, uid, start_time]
+            annotations: 
+              - key: "*"
+                from: pod
+            labels:
+              - key: "*"
+                from: pod
+        system:
+          resource_attributes:
+            host.name:
+              enabled: true
+            host.id:
+              enabled: true
+            os.description:
+              enabled: true
+            os.type:
+              enabled: true
+
+      # Enhanced resource attributes for Grafana Cloud
+      resource:
+        attributes:
+          - key: service.name
+            value: ${APP_NAME}
+            action: upsert
+          - key: service.version
+            value: ${APP_VERSION}
+            action: upsert
+          - key: service.namespace
+            value: ${SERVICE_NAMESPACE}
+            action: upsert
+          - key: deployment.environment
+            value: ${ENVIRONMENT}
+            action: upsert
+          - key: k8s.cluster.name
+            value: ${CLUSTER_NAME}
+            action: upsert
+          - key: cloud.region
+            value: ${REGION}
+            action: upsert
+          {{- if .Values.grafanaCloud.enabled }}
+          - key: grafana.cloud.instance
+            value: ${GRAFANA_CLOUD_INSTANCE_ID}
+            action: upsert
+          {{- end }}
+          - key: processor.layer
+            value: smart
+            action: upsert
+
+      # Advanced label strategy for Grafana Cloud
+      attributes:
+        actions:
+          {{- if .Values.grafanaCloud.enabled }}
+          # Create consistent labeling for Grafana Cloud
+          - key: grafana.service.name
+            from_attribute: service.name
+            action: insert
+          - key: grafana.environment
+            from_attribute: deployment.environment
+            action: insert
+          - key: grafana.cluster
+            from_attribute: k8s.cluster.name
+            action: insert
+          - key: grafana.region
+            from_attribute: cloud.region
+            action: insert
+          {{- end }}
+          
+          # Add processing timestamps
+          - key: processor.timestamp
+            value: "${timestamp}"
+            action: insert
+          - key: processor.hostname
+            from_attribute: host.name
+            action: insert
+          
+          {{- if .Values.processor.config.attributes.serviceNameNormalization.enabled }}
+          # Normalize trace attributes for better grouping
+          - key: trace.service.group
+            pattern: {{ .Values.processor.config.attributes.serviceNameNormalization.pattern }}
+            from_attribute: service.name
+            action: extract
+          {{- end }}
+
+      # Environment-based filtering
+      filter:
+        error_mode: ignore
+        traces:
+          span:
+            {{- range .Values.processor.config.filtering.excludeEnvironments }}
+            - 'resource.attributes["environment"] == "{{ . }}"'
+            - 'resource.attributes["deployment.environment"] == "{{ . }}"'
+            {{- end }}
+            {{- range .Values.processor.config.filtering.excludeServices }}
+            - 'resource.attributes["service.name"] == "{{ . }}"'
+            {{- end }}
+            {{- range .Values.processor.config.filtering.excludeUrlPatterns }}
+            - 'attributes["http.url"] =~ "{{ . }}"'
+            {{- end }}
+        metrics:
+          metric:
+            {{- range .Values.processor.config.filtering.excludeEnvironments }}
+            - 'resource.attributes["environment"] == "{{ . }}"'
+            - 'resource.attributes["deployment.environment"] == "{{ . }}"'
+            {{- end }}
+
+      {{- if .Values.processor.config.metricsTransform.enabled }}
+      # Transform metrics for better organization
+      metricstransform:
+        transforms:
+          - include: ".*"
+            match_type: regexp
+            action: update
+            operations:
+              {{- if .Values.grafanaCloud.enabled }}
+              - action: add_label
+                new_label: grafana_instance
+                new_value: ${GRAFANA_CLOUD_INSTANCE_ID}
+              {{- end }}
+              {{- range .Values.processor.config.metricsTransform.standardLabels }}
+              - action: add_label
+                new_label: {{ . }}
+                new_value: "${{ printf "{%s}" (. | upper) }}"
+              {{- end }}
+      {{- end }}
+
+      # Batch processing optimized for performance
+      batch:
+        {{- toYaml .Values.processor.config.batch | nindent 8 }}
+
+      # Memory management
+      memory_limiter:
+        {{- toYaml .Values.processor.config.memory_limiter | nindent 8 }}
+
+    exporters:
+      {{- if .Values.grafanaCloud.enabled }}
+      {{- if .Values.grafanaCloud.tempo.enabled }}
+      # Grafana Cloud Tempo (Traces)
+      otlp/tempo:
+        endpoint: ${GRAFANA_CLOUD_TEMPO_URL}
+        headers:
+          authorization: "Basic ${GRAFANA_CLOUD_INSTANCE_ID}:${GRAFANA_CLOUD_API_KEY}"
+        tls:
+          insecure: false
+        sending_queue:
+          num_consumers: 4
+          queue_size: 200
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+      {{- end }}
+
+      {{- if .Values.grafanaCloud.prometheus.enabled }}
+      # Grafana Cloud Prometheus (Metrics)
+      prometheusremotewrite:
+        endpoint: ${GRAFANA_CLOUD_PROMETHEUS_URL}
+        headers:
+          authorization: "Basic ${GRAFANA_CLOUD_INSTANCE_ID}:${GRAFANA_CLOUD_API_KEY}"
+        tls:
+          insecure: false
+        timeout: 30s
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+        external_labels:
+          {{- range $key, $value := .Values.grafanaCloud.prometheus.externalLabels }}
+          {{ $key }}: {{ $value }}
+          {{- end }}
+          cluster: ${CLUSTER_NAME}
+          environment: ${ENVIRONMENT}
+          region: ${REGION}
+          namespace: {{ .Release.Namespace }}
+      {{- end }}
+      {{- end }}
+
+      # Local debugging
+      debug:
+        verbosity: basic
+        sampling_initial: 5
+        sampling_thereafter: 200
+
+      # File export for backup/analysis
+      file:
+        path: /tmp/otel-traces.json
+        rotation:
+          max_megabytes: 100
+          max_days: 3
+          max_backups: 5
+
+      # Prometheus metrics for local monitoring
+      prometheus:
+        endpoint: "0.0.0.0:{{ .Values.processor.service.ports.metrics }}"
+        namespace: "otelcol"
+        const_labels:
+          cluster: ${CLUSTER_NAME}
+          environment: ${ENVIRONMENT}
+          service: ${APP_NAME}
+          namespace: {{ .Release.Namespace }}
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:{{ .Values.processor.service.ports.health }}
+      pprof:
+        endpoint: 0.0.0.0:1777
+      zpages:
+        endpoint: 0.0.0.0:55679
+
+    service:
+      extensions: [health_check, pprof, zpages]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, resourcedetection, resource, attributes, filter, batch]
+          exporters: 
+            - debug
+            - file
+            {{- if .Values.grafanaCloud.enabled }}
+            {{- if .Values.grafanaCloud.tempo.enabled }}
+            - otlp/tempo
+            {{- end }}
+            {{- end }}
+        
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, resourcedetection, resource, attributes, filter, batch]
+          exporters: 
+            - prometheus
+            - debug
+            {{- if .Values.grafanaCloud.enabled }}
+            {{- if .Values.grafanaCloud.prometheus.enabled }}
+            - prometheusremotewrite
+            {{- end }}
+            {{- end }}
+      
+      telemetry:
+        logs:
+          level: info
+        metrics:
+          address: 0.0.0.0:{{ .Values.processor.service.ports.metrics }}
+{{- end }}
