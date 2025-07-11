@@ -7,7 +7,7 @@ services:
     container_name: otel-processor
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
-      - ./processor-config.yaml:/etc/otelcol-contrib/config.yaml
+      - ./config/processor-config.yaml:/etc/otelcol-contrib/config.yaml
     networks:
       - otel-net
 
@@ -17,7 +17,7 @@ services:
     container_name: otel-collector
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
-      - ./collector-config.yaml:/etc/otelcol-contrib/config.yaml
+      - ./config/collector-config.yaml:/etc/otelcol-contrib/config.yaml
     ports:
       - "4317:4317" # Expose OTLP gRPC port to the host
     depends_on:

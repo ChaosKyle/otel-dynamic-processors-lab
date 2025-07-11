@@ -17,7 +17,7 @@ Thank you for your interest in contributing to this OpenTelemetry lab! This proj
 1. **Fork the repository**
 2. **Create a feature branch**: `git checkout -b feature/amazing-processor`
 3. **Make your changes**
-4. **Test thoroughly** with `./deploy.sh deploy`
+4. **Test thoroughly** with `./scripts/deploy.sh deploy`
 5. **Submit a pull request**
 
 ### Development Setup
@@ -28,8 +28,11 @@ git clone https://github.com/your-username/otel-docker-lab.git
 cd otel-docker-lab
 
 # Test the setup
-./deploy.sh deploy
-./deploy.sh status
+./scripts/deploy.sh deploy
+./scripts/deploy.sh status
+
+# Run validation tests
+./scripts/test-pipeline.sh
 ```
 
 ### Code Standards
@@ -47,6 +50,9 @@ Before submitting a PR, ensure:
 - [ ] Processors are working as expected
 - [ ] Documentation is updated
 - [ ] Examples are tested
+- [ ] Test pipeline passes: `./scripts/test-pipeline.sh`
+- [ ] Configuration validation succeeds
+- [ ] No sensitive data in commits
 
 ### Pull Request Process
 
@@ -96,8 +102,18 @@ By contributing, you agree that your contributions will be licensed under the sa
 
 ## 💬 Community
 
-- Questions? Open an issue
-- Discussions? Use GitHub Discussions
-- Found this helpful? Star the repository!
+- 💬 **Questions?** Open an issue with the `question` label
+- 🗣️ **Discussions?** Use GitHub Discussions for general topics
+- 🐛 **Bug reports?** Use the issue template with full details
+- 💡 **Feature requests?** Use the feature request issue template
+- ⭐ **Found this helpful?** Star the repository and share it!
+- 📣 **Show your work?** Tag us when you use this lab in your projects
+
+### Quick Help
+
+- Use `./scripts/test-pipeline.sh --help` for testing options
+- Check `docs/` folder for additional guides
+- Review `helm/KUBERNETES.md` for Kubernetes deployment
+- See existing issues for common questions
 
 Thank you for making OpenTelemetry better for everyone! 🙏

@@ -1,0 +1,37 @@
+# OpenTelemetry Collector Configuration - Basic Setup
+# This is the "Dumb" layer that receives telemetry and forwards it to the processor layer
+# Purpose: Simple ingestion with minimal processing
+
+# RECEIVERS: Define how telemetry data enters the collector
+receivers:
+  # OTLP receiver accepts OpenTelemetry protocol data
+  otlp:
+    protocols:
+      grpc:
+        # Listen on all interfaces, port 4317 (standard OTLP gRPC port)
+        endpoint: 0.0.0.0:4317
+
+# PROCESSORS: Transform data as it flows through the pipeline
+processors:
+  # Batch processor groups spans together for efficient export
+  # This reduces network overhead and improves throughput
+  batch: {}
+
+# EXPORTERS: Define where processed data is sent
+exporters:
+  # Forward all data to the processor layer (smart layer)
+  otlp:
+    # Send to the processor container on the internal network
+    endpoint: otel-processor:4317
+    tls:
+      # Use unencrypted connection for internal container communication
+      insecure: true
+
+# SERVICE: Define the data flow pipeline
+service:
+  pipelines:
+    # Traces pipeline: traces flow from receivers → processors → exporters
+    traces:
+      receivers: [otlp]    # Accept OTLP traces
+      processors: [batch]  # Batch for efficiency
+      exporters: [otlp]    # Forward to processor layer

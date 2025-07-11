@@ -14,8 +14,9 @@ NC='\033[0m' # No Color
 
 # Script configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/.env"
-COMPOSE_FILE="$SCRIPT_DIR/docker-compose-enhanced.yaml"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+ENV_FILE="$PROJECT_DIR/.env"
+COMPOSE_FILE="$PROJECT_DIR/docker-compose-enhanced.yaml"
 
 # Function to print colored output
 print_status() {
@@ -46,11 +47,18 @@ check_prerequisites() {
         exit 1
     fi
     
-    # Check Docker Compose
-    if ! command -v docker-compose &> /dev/null; then
+    # Check Docker Compose (V1 or V2)
+    if command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE_CMD="docker-compose"
+    elif docker compose version &> /dev/null; then
+        DOCKER_COMPOSE_CMD="docker compose"
+    else
         print_error "Docker Compose is not installed or not in PATH"
         exit 1
     fi
+    
+    # OpenTelemetry Collector supports native environment variable expansion
+    print_status "Using OpenTelemetry Collector native environment variable expansion"
     
     # Check if Docker daemon is running
     if ! docker info &> /dev/null; then
@@ -91,50 +99,39 @@ validate_env() {
 create_directories() {
     print_status "Creating required directories..."
     
-    mkdir -p "$SCRIPT_DIR/data"
-    mkdir -p "$SCRIPT_DIR/grafana/provisioning/dashboards"
-    mkdir -p "$SCRIPT_DIR/grafana/provisioning/datasources"
+    mkdir -p "$PROJECT_DIR/data"
+    mkdir -p "$PROJECT_DIR/grafana/provisioning/dashboards"
+    mkdir -p "$PROJECT_DIR/grafana/provisioning/datasources"
     
     print_status "Directories created successfully!"
 }
 
-# Function to substitute environment variables in config files
-substitute_env_vars() {
-    print_status "Substituting environment variables in configuration files..."
+# Function to validate config files exist
+validate_config_files() {
+    print_status "Validating configuration files..."
     
-    # Source environment variables
-    source "$ENV_FILE"
-    
-    # List of config files to process
+    # List of config files to check
     config_files=(
-        "collector-config-enhanced.yaml"
-        "processor-config-enhanced.yaml"
+        "config/collector-config-enhanced.yaml"
+        "config/processor-config-enhanced.yaml"
+        "config/prometheus.yml"
     )
     
     for config_file in "${config_files[@]}"; do
-        if [ -f "$SCRIPT_DIR/$config_file" ]; then
-            print_status "Processing $config_file..."
-            
-            # Create backup
-            cp "$SCRIPT_DIR/$config_file" "$SCRIPT_DIR/$config_file.backup"
-            
-            # Substitute variables
-            envsubst < "$SCRIPT_DIR/$config_file.backup" > "$SCRIPT_DIR/$config_file"
-            
-            print_status "Processed $config_file"
-        else
-            print_warning "Config file not found: $config_file"
+        if [ ! -f "$PROJECT_DIR/$config_file" ]; then
+            print_error "Config file not found: $config_file"
+            exit 1
         fi
     done
     
-    print_status "Environment variable substitution completed!"
+    print_status "Configuration files validated successfully!"
 }
 
 # Function to create Prometheus configuration
 create_prometheus_config() {
     print_status "Creating Prometheus configuration..."
     
-    cat > "$SCRIPT_DIR/prometheus.yml" << EOF
+    cat > "$PROJECT_DIR/config/prometheus.yml" << EOF
 global:
   scrape_interval: 15s
 
@@ -161,7 +158,7 @@ EOF
 create_grafana_config() {
     print_status "Creating Grafana configuration..."
     
-    cat > "$SCRIPT_DIR/grafana/provisioning/datasources/datasources.yaml" << EOF
+    cat > "$PROJECT_DIR/grafana/provisioning/datasources/datasources.yaml" << EOF
 apiVersion: 1
 
 datasources:
@@ -192,11 +189,11 @@ deploy_stack() {
     
     # Pull latest images
     print_status "Pulling latest Docker images..."
-    docker-compose -f "$COMPOSE_FILE" pull
+    $DOCKER_COMPOSE_CMD -f "$COMPOSE_FILE" pull
     
     # Start the stack
     print_status "Starting services..."
-    docker-compose -f "$COMPOSE_FILE" up -d
+    $DOCKER_COMPOSE_CMD -f "$COMPOSE_FILE" up -d
     
     print_status "Stack deployment initiated!"
 }
@@ -209,7 +206,7 @@ wait_for_services() {
     print_status "Waiting for collector to be healthy..."
     timeout=60
     while [ $timeout -gt 0 ]; do
-        if docker-compose -f "$COMPOSE_FILE" exec -T otel-collector curl -f http://localhost:13133/ &> /dev/null; then
+        if $DOCKER_COMPOSE_CMD -f "$COMPOSE_FILE" exec -T otel-collector curl -f http://localhost:13133/ &> /dev/null; then
             print_status "Collector is healthy!"
             break
         fi
@@ -225,7 +222,7 @@ wait_for_services() {
     print_status "Waiting for processor to be healthy..."
     timeout=60
     while [ $timeout -gt 0 ]; do
-        if docker-compose -f "$COMPOSE_FILE" exec -T otel-processor curl -f http://localhost:13133/ &> /dev/null; then
+        if $DOCKER_COMPOSE_CMD -f "$COMPOSE_FILE" exec -T otel-processor curl -f http://localhost:13133/ &> /dev/null; then
             print_status "Processor is healthy!"
             break
         fi
@@ -260,16 +257,16 @@ display_access_info() {
     echo -e "  📈 Metrics sent to Prometheus: ${GRAFANA_CLOUD_PROMETHEUS_URL}"
     echo
     echo -e "${BLUE}Commands:${NC}"
-    echo -e "  View logs:                   docker-compose -f $COMPOSE_FILE logs -f"
-    echo -e "  Stop services:               docker-compose -f $COMPOSE_FILE down"
-    echo -e "  Restart services:            docker-compose -f $COMPOSE_FILE restart"
+    echo -e "  View logs:                   $DOCKER_COMPOSE_CMD -f $COMPOSE_FILE logs -f"
+    echo -e "  Stop services:               $DOCKER_COMPOSE_CMD -f $COMPOSE_FILE down"
+    echo -e "  Restart services:            $DOCKER_COMPOSE_CMD -f $COMPOSE_FILE restart"
     echo
 }
 
 # Function to show service status
 show_status() {
     print_status "Current service status:"
-    docker-compose -f "$COMPOSE_FILE" ps
+    $DOCKER_COMPOSE_CMD -f "$COMPOSE_FILE" ps
 }
 
 # Main execution function
@@ -281,7 +278,7 @@ main() {
             check_prerequisites
             validate_env
             create_directories
-            substitute_env_vars
+            validate_config_files
             create_prometheus_config
             create_grafana_config
             deploy_stack
@@ -291,23 +288,23 @@ main() {
             ;;
         "stop")
             print_status "Stopping services..."
-            docker-compose -f "$COMPOSE_FILE" down
+            $DOCKER_COMPOSE_CMD -f "$COMPOSE_FILE" down
             print_status "Services stopped!"
             ;;
         "restart")
             print_status "Restarting services..."
-            docker-compose -f "$COMPOSE_FILE" restart
+            $DOCKER_COMPOSE_CMD -f "$COMPOSE_FILE" restart
             print_status "Services restarted!"
             ;;
         "logs")
-            docker-compose -f "$COMPOSE_FILE" logs -f
+            $DOCKER_COMPOSE_CMD -f "$COMPOSE_FILE" logs -f
             ;;
         "status")
             show_status
             ;;
         "clean")
             print_status "Cleaning up..."
-            docker-compose -f "$COMPOSE_FILE" down -v
+            $DOCKER_COMPOSE_CMD -f "$COMPOSE_FILE" down -v
             docker system prune -f
             print_status "Cleanup completed!"
             ;;

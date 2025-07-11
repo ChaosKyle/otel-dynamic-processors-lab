@@ -32,25 +32,25 @@ processors:
   resource:
     attributes:
       - key: service.name
-        value: 
+        value: ${env:APP_NAME}
         action: upsert
       - key: service.version
-        value: 
+        value: ${env:APP_VERSION}
         action: upsert
       - key: service.namespace
-        value: 
+        value: ${env:SERVICE_NAMESPACE}
         action: upsert
       - key: deployment.environment
-        value: 
+        value: ${env:ENVIRONMENT}
         action: upsert
       - key: k8s.cluster.name
-        value: 
+        value: ${env:K8S_CLUSTER_NAME}
         action: upsert
       - key: cloud.region
-        value: 
+        value: ${env:CLOUD_REGION}
         action: upsert
       - key: grafana.cloud.instance
-        value: 
+        value: ${env:GRAFANA_CLOUD_INSTANCE_ID}
         action: upsert
       - key: processor.layer
         value: smart
@@ -75,7 +75,7 @@ processors:
       
       # Add processing timestamps
       - key: processor.timestamp
-        value: 
+        value: ${__timestamp__}
         action: insert
       - key: processor.hostname
         from_attribute: host.name
@@ -113,13 +113,13 @@ processors:
         operations:
           - action: add_label
             new_label: grafana_instance
-            new_value: 
+            new_value: ${env:GRAFANA_CLOUD_INSTANCE_ID}
           - action: add_label
             new_label: cluster
-            new_value: 
+            new_value: ${env:GRAFANA_CLOUD_INSTANCE_ID}
           - action: add_label
             new_label: environment
-            new_value: 
+            new_value: ${env:GRAFANA_CLOUD_INSTANCE_ID}
 
   # Batch processing optimized for Grafana Cloud
   batch:
@@ -135,9 +135,9 @@ processors:
 exporters:
   # Grafana Cloud Tempo (Traces)
   otlp/tempo:
-    endpoint: 
+    endpoint: ${env:GRAFANA_CLOUD_TEMPO_URL}
     headers:
-      authorization: "Basic :"
+      authorization: "Basic ${env:GRAFANA_CLOUD_TEMPO_AUTH}"
     tls:
       insecure: false
     sending_queue:
@@ -151,9 +151,9 @@ exporters:
 
   # Grafana Cloud Prometheus (Metrics)
   prometheusremotewrite:
-    endpoint: 
+    endpoint: ${env:GRAFANA_CLOUD_PROMETHEUS_URL}
     headers:
-      authorization: "Basic :"
+      authorization: "Basic ${env:GRAFANA_CLOUD_PROMETHEUS_AUTH}"
     tls:
       insecure: false
     timeout: 30s
@@ -163,10 +163,10 @@ exporters:
       max_interval: 30s
       max_elapsed_time: 300s
     external_labels:
-      cluster: 
-      environment: 
-      region: 
-      instance: 
+      cluster: ${env:K8S_CLUSTER_NAME}
+      environment: ${env:ENVIRONMENT}
+      region: ${env:CLOUD_REGION}
+      instance: ${env:GRAFANA_CLOUD_INSTANCE_ID}
 
   # Local debugging
   debug:
@@ -186,9 +186,9 @@ exporters:
   prometheus:
     endpoint: "0.0.0.0:8889"
     const_labels:
-      cluster: 
-      environment: 
-      service: 
+      cluster: ${env:K8S_CLUSTER_NAME}
+      environment: ${env:ENVIRONMENT}
+      service: ${env:APP_NAME}
 
 extensions:
   health_check:
@@ -213,6 +213,6 @@ service:
   
   telemetry:
     logs:
-      level: 
+      level: ${env:LOG_LEVEL}
     metrics:
       address: 0.0.0.0:8888

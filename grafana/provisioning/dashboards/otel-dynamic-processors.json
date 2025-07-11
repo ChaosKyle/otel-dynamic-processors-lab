@@ -1,0 +1,484 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "OpenTelemetry Dynamic Processors",
+    "tags": ["otel", "dynamic", "processors", "filtering"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Environment Filtering - Spans Dropped",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(otelcol_processor_dropped_spans_total{processor=\"filter\"}[5m])",
+            "legendFormat": "Dev Spans Dropped/sec",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 0
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 1
+                },
+                {
+                  "color": "red",
+                  "value": 10
+                }
+              ]
+            },
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Resource Detection - Attributes Added",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(otelcol_processor_span_attributes_added_total{processor=\"resourcedetection\"}[5m])",
+            "legendFormat": "Attributes Added/sec",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 50
+                },
+                {
+                  "color": "red",
+                  "value": 100
+                }
+              ]
+            },
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Batch Processing - Efficiency",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(otelcol_processor_batch_batch_send_size_sum[5m]) / rate(otelcol_processor_batch_batch_send_size_count[5m])",
+            "legendFormat": "Avg Batch Size",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 100
+                },
+                {
+                  "color": "green",
+                  "value": 500
+                }
+              ]
+            },
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Sampling Rate - Cost Control",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(otelcol_processor_probabilistic_sampler_count_traces_sampled[5m]) / rate(otelcol_processor_probabilistic_sampler_count_traces_received[5m]) * 100",
+            "legendFormat": "Sampling Rate %",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 10
+                },
+                {
+                  "color": "green",
+                  "value": 50
+                }
+              ]
+            },
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Environment-based Filtering Over Time",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(otelcol_receiver_accepted_spans_total[5m])",
+            "legendFormat": "Incoming Spans - {{service}}",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(otelcol_processor_dropped_spans_total{processor=\"filter\"}[5m])",
+            "legendFormat": "Filtered Out (Dev) - {{service}}",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(otelcol_exporter_sent_spans_total[5m])",
+            "legendFormat": "Sent to Cloud - {{service}}",
+            "refId": "C"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 4
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              },
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Resource Detection Attributes",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(otelcol_processor_span_attributes_added_total{processor=\"resourcedetection\"}[5m])",
+            "legendFormat": "Attributes Added - {{detector}}",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 4
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              },
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Processor Performance Summary",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "otelcol_processor_accepted_spans_total",
+            "legendFormat": "{{processor}} - Accepted",
+            "refId": "A",
+            "instant": true
+          },
+          {
+            "expr": "otelcol_processor_dropped_spans_total",
+            "legendFormat": "{{processor}} - Dropped",
+            "refId": "B",
+            "instant": true
+          },
+          {
+            "expr": "rate(otelcol_processor_accepted_spans_total[5m])",
+            "legendFormat": "{{processor}} - Rate",
+            "refId": "C",
+            "instant": true
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 12
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "custom": {
+              "align": "auto",
+              "displayMode": "auto"
+            },
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 1000
+                },
+                {
+                  "color": "red",
+                  "value": 10000
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Memory Limiter Activity",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "otelcol_processor_memory_limiter_current_usage",
+            "legendFormat": "Memory Usage - {{service}}",
+            "refId": "A"
+          },
+          {
+            "expr": "otelcol_processor_memory_limiter_limit",
+            "legendFormat": "Memory Limit - {{service}}",
+            "refId": "B"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 20
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              },
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "unit": "bytes"
+          }
+        }
+      },
+      {
+        "id": 9,
+        "title": "Export Success Rate",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(otelcol_exporter_sent_spans_total[5m])",
+            "legendFormat": "Sent - {{exporter}}",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(otelcol_exporter_send_failed_spans_total[5m])",
+            "legendFormat": "Failed - {{exporter}}",
+            "refId": "B"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 20
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              },
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "unit": "reqps"
+          }
+        }
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "",
+    "title": "OpenTelemetry Dynamic Processors",
+    "uid": "otel-dynamic-processors",
+    "version": 1,
+    "weekStart": ""
+  }
+}

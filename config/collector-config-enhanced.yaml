@@ -12,7 +12,7 @@ receivers:
     config:
       scrape_configs:
         - job_name: 'otel-collector'
-          scrape_interval: 
+          scrape_interval: 15s
           static_configs:
             - targets: ['0.0.0.0:8888']
 
@@ -53,22 +53,22 @@ processors:
   resource:
     attributes:
       - key: service.name
-        value: 
+        value: ${env:APP_NAME}
         action: upsert
       - key: service.version
-        value: 
+        value: ${env:APP_VERSION}
         action: upsert
       - key: service.namespace
-        value: 
+        value: ${env:SERVICE_NAMESPACE}
         action: upsert
       - key: deployment.environment
-        value: 
+        value: ${env:ENVIRONMENT}
         action: upsert
       - key: k8s.cluster.name
-        value: 
+        value: ${env:K8S_CLUSTER_NAME}
         action: upsert
       - key: cloud.region
-        value: 
+        value: ${env:CLOUD_REGION}
         action: upsert
       - key: telemetry.sdk.name
         value: opentelemetry
@@ -103,7 +103,7 @@ processors:
 
   # Sampling for cost control
   probabilistic_sampler:
-    sampling_percentage: 
+    sampling_percentage: ${env:SAMPLING_PERCENTAGE}
 
   # Batch processing for efficiency
   batch:
@@ -162,6 +162,6 @@ service:
   
   telemetry:
     logs:
-      level: 
+      level: ${env:LOG_LEVEL}
     metrics:
       address: 0.0.0.0:8888

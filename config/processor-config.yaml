@@ -1,0 +1,68 @@
+# OpenTelemetry Processor Configuration - Smart Layer
+# This is the "Smart" layer that applies dynamic processing logic
+# Purpose: Advanced filtering, attribute manipulation, and intelligent routing
+
+# RECEIVERS: Accept data from the collector layer
+receivers:
+  # OTLP receiver for data forwarded from the collector layer
+  otlp:
+    protocols:
+      grpc:
+        # Listen on all interfaces, port 4317
+        endpoint: 0.0.0.0:4317
+
+# PROCESSORS: Advanced data transformation and filtering
+processors:
+  # ATTRIBUTES PROCESSOR: Add custom attributes to enrich telemetry data
+  attributes:
+    actions:
+      # Tag data as processed by the "smart" layer
+      - key: processor.layer
+        action: insert
+        value: "smart"
+      # Add processing timestamp for debugging
+      - key: processed.at
+        action: insert
+        value: "${__timestamp__}"
+  
+  # FILTER PROCESSOR: Drop unwanted data to reduce costs and noise
+  # This is a key dynamic processor feature - intelligent data selection
+  filter:
+    error_mode: ignore  # Continue processing even if filter fails
+    traces:
+      span:
+        # DROP all traces from development environment
+        # This saves money by not sending dev data to production backends
+        - 'resource.attributes["environment"] == "dev"'
+        # You can add more filters:
+        # - 'resource.attributes["service.name"] == "test-service"'
+        # - 'attributes["http.status_code"] == 200'  # Drop successful requests
+  
+  # BATCH PROCESSOR: Group spans for efficient export
+  # Reduces network calls and improves performance
+  batch: {}
+
+# EXPORTERS: Send processed data to final destinations
+exporters:
+  # DEBUG EXPORTER: Print traces to console for development/debugging
+  # In production, replace this with actual backends (Jaeger, Grafana, etc.)
+  debug:
+    verbosity: detailed  # Show full trace details
+
+# SERVICE: Define the intelligent processing pipeline
+service:
+  pipelines:
+    # Smart traces pipeline with multi-stage processing
+    traces:
+      receivers: [otlp]                      # Receive from collector layer
+      processors: [attributes, filter, batch]  # Process in sequence:
+                                             # 1. Add enrichment attributes
+                                             # 2. Filter out unwanted data
+                                             # 3. Batch for efficiency
+      exporters: [debug]                     # Send to debug output
+
+# LEARNING NOTES:
+# - Processors run in the order specified in the pipeline
+# - Filter processor can dramatically reduce data volume and costs
+# - Attributes processor enables rich context for debugging and alerting
+# - This pattern separates concerns: collector=ingestion, processor=intelligence

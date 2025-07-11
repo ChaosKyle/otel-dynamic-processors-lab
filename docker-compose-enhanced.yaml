@@ -10,7 +10,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./processor-config-enhanced.yaml:/etc/otelcol-contrib/config.yaml
+      - ./config/processor-config-enhanced.yaml:/etc/otelcol-contrib/config.yaml
       - ./data:/tmp
     ports:
       - "8889:8889"   # Prometheus metrics
@@ -33,7 +33,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./collector-config-enhanced.yaml:/etc/otelcol-contrib/config.yaml
+      - ./config/collector-config-enhanced.yaml:/etc/otelcol-contrib/config.yaml
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
       - "4317:4317"   # OTLP gRPC
@@ -140,7 +140,7 @@ services:
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
     networks:
       - otel-net
     depends_on:

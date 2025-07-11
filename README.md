@@ -10,6 +10,71 @@
 
 This lab showcases **dynamic processors** - OpenTelemetry's most powerful feature for intelligent telemetry processing. Unlike static configurations, dynamic processors adapt to your environment, automatically detect resources, and apply sophisticated labeling strategies that scale with your infrastructure.
 
+## 📚 Table of Contents
+
+- [🚀 Quick Start Guide](#-quick-start-guide)
+- [🏗️ Architecture Overview](#️-architecture-overview)
+- [🔧 Dynamic Processors Deep Dive](#-dynamic-processors-deep-dive)
+- [🎯 Use Cases & Examples](#-use-cases--examples)
+- [⚙️ Configuration Guide](#️-configuration-guide)
+- [🚀 Deployment Options](#-deployment-options)
+  - [Docker Compose](#docker-compose)
+  - [Kubernetes (Helm)](#kubernetes-helm)
+- [📊 Monitoring & Observability](#-monitoring--observability)
+- [🧪 Testing & Validation](#-testing--validation)
+- [🎓 Advanced Topics](#-advanced-topics)
+- [🛠️ Troubleshooting](#️-troubleshooting)
+- [🤝 Contributing](#-contributing)
+- [📚 Resources](#-resources)
+
+## 🚀 Quick Start Guide
+
+### Step 1: Configure Your Environment
+
+```bash
+# Clone and setup
+git clone <this-repo>
+cd otel-docker-lab
+
+# Update your Grafana Cloud credentials
+cat > .env << EOF
+GRAFANA_CLOUD_INSTANCE_ID=123456
+GRAFANA_CLOUD_API_KEY=glc_your_api_key_here
+GRAFANA_CLOUD_PROMETHEUS_URL=https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push
+GRAFANA_CLOUD_TEMPO_URL=https://tempo-prod-04-eu-west-0.grafana.net:443
+
+# Application settings
+APP_NAME=my-awesome-app
+APP_VERSION=2.0.0
+ENVIRONMENT=production
+SERVICE_NAMESPACE=microservices
+K8S_CLUSTER_NAME=prod-cluster
+CLOUD_REGION=us-east-1
+SAMPLING_PERCENTAGE=100
+LOG_LEVEL=info
+EOF
+```
+
+### Step 2: Deploy the Stack
+
+```bash
+# Deploy with enhanced configuration
+./scripts/deploy.sh deploy
+
+# View logs
+./scripts/deploy.sh logs
+
+# Check status
+./scripts/deploy.sh status
+```
+
+### Step 3: Access the Dashboards
+
+- **Grafana (Local)**: http://localhost:3000 (admin/admin)
+- **Prometheus**: http://localhost:9090
+- **Collector Health**: http://localhost:13134
+- **Processor Health**: http://localhost:13133
+
 ## 🏗️ Architecture Overview
 
 ```mermaid
@@ -215,58 +280,6 @@ metricstransform:
 - 🏷️ **Label Management**: Add, remove, or modify labels
 - 🔢 **Value Scaling**: Unit conversions and normalizations
 - 📈 **Aggregation**: Combine metrics intelligently
-
-## 🚀 Quick Start Guide
-
-### Step 1: Configure Your Environment
-
-```bash
-# Clone and setup
-git clone <this-repo>
-cd otel-docker-lab
-
-# Update your Grafana Cloud credentials
-cat > .env << EOF
-GRAFANA_CLOUD_INSTANCE_ID=123456
-GRAFANA_CLOUD_API_KEY=glc_your_api_key_here
-GRAFANA_CLOUD_PROMETHEUS_URL=https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push
-GRAFANA_CLOUD_TEMPO_URL=https://tempo-prod-04-eu-west-0.grafana.net:443
-
-# Application settings
-APP_NAME=my-awesome-app
-APP_VERSION=2.0.0
-ENVIRONMENT=production
-SERVICE_NAMESPACE=microservices
-CLUSTER_NAME=prod-cluster
-REGION=us-east-1
-EOF
-```
-
-### Step 2: Deploy the Stack
-
-```bash
-# Deploy everything
-./deploy.sh deploy
-
-# Check status
-./deploy.sh status
-
-# View logs
-./deploy.sh logs
-```
-
-### Step 3: Explore the Processors
-
-```bash
-# Watch the magic happen
-docker logs -f otel-processor-enhanced
-
-# Check collector metrics
-curl http://localhost:8888/metrics
-
-# View processor metrics
-curl http://localhost:8889/metrics
-```
 
 ## 🎯 Dynamic Processor Use Cases
 
