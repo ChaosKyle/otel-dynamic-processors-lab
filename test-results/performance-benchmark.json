@@ -1,0 +1,23 @@
+{
+  "timestamp": 1752692192.8057423,
+  "results": [
+    {
+      "batch_size": 100,
+      "duration_seconds": 3.814697265625e-06,
+      "throughput_spans_per_second": 26214400.0,
+      "memory_estimate_mb": 0.0476837158203125
+    },
+    {
+      "batch_size": 1000,
+      "duration_seconds": 3.552436828613281e-05,
+      "throughput_spans_per_second": 28149691.275167786,
+      "memory_estimate_mb": 0.476837158203125
+    },
+    {
+      "batch_size": 10000,
+      "duration_seconds": 0.0005555152893066406,
+      "throughput_spans_per_second": 18001304.72103004,
+      "memory_estimate_mb": 4.76837158203125
+    }
+  ]
+}

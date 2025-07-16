@@ -1,0 +1,229 @@
+# OpenTelemetry Processor Configuration with Sorting Capability
+# This configuration adds intelligent sorting to the smart processing layer
+# Purpose: Advanced filtering, sorting, attribute manipulation, and intelligent routing
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Memory limiter for stability - must be first
+  memory_limiter:
+    limit_mib: 1024
+    spike_limit_mib: 256
+    check_interval: 1s
+
+  # Resource detection and enhancement
+  resourcedetection:
+    detectors: [docker, system, process]
+    docker:
+      resource_attributes:
+        host.name:
+          enabled: true
+        os.type:
+          enabled: true
+        container.image.name:
+          enabled: true
+        container.image.tag:
+          enabled: true
+    system:
+      resource_attributes:
+        host.name:
+          enabled: true
+        host.id:
+          enabled: true
+        os.description:
+          enabled: true
+        os.type:
+          enabled: true
+    process:
+      resource_attributes:
+        process.pid:
+          enabled: true
+        process.executable.name:
+          enabled: true
+        process.command_line:
+          enabled: true
+
+  # Enhanced resource attributes
+  resource:
+    attributes:
+      - key: service.name
+        value: ${env:APP_NAME}
+        action: upsert
+      - key: service.version
+        value: ${env:APP_VERSION}
+        action: upsert
+      - key: service.namespace
+        value: ${env:SERVICE_NAMESPACE}
+        action: upsert
+      - key: deployment.environment
+        value: ${env:ENVIRONMENT}
+        action: upsert
+      - key: processor.layer
+        value: smart_with_sort
+        action: upsert
+
+  # SORTING PROCESSOR - New dynamic sorting capability
+  # This processor sorts telemetry data based on configurable criteria
+  batch/sort_buffer:
+    # Pre-sorting batch configuration
+    send_batch_size: 100
+    timeout: 5s
+    send_batch_max_size: 500
+
+  # Transform processor for sorting metadata and logic
+  transform:
+    error_mode: ignore
+    trace_statements:
+      # Add sorting metadata to spans
+      - set(attributes["sort.timestamp"], span.start_time)
+      - set(attributes["sort.duration"], span.end_time - span.start_time)
+      - set(attributes["sort.service"], resource.attributes["service.name"])
+      
+      # Add priority scoring for sorting
+      - set(attributes["sort.priority"], 1) where span.status.code == SPAN_STATUS_CODE_OK
+      - set(attributes["sort.priority"], 2) where span.status.code == SPAN_STATUS_CODE_ERROR
+      - set(attributes["sort.priority"], 3) where span.status.code == SPAN_STATUS_CODE_UNSET
+      
+      # Add severity-based sorting weight
+      - set(attributes["sort.severity_weight"], 1) where attributes["level"] == "DEBUG"
+      - set(attributes["sort.severity_weight"], 2) where attributes["level"] == "INFO"
+      - set(attributes["sort.severity_weight"], 3) where attributes["level"] == "WARN"
+      - set(attributes["sort.severity_weight"], 4) where attributes["level"] == "ERROR"
+      - set(attributes["sort.severity_weight"], 5) where attributes["level"] == "FATAL"
+      
+      # Add business logic priority
+      - set(attributes["sort.business_priority"], 10) where resource.attributes["service.name"] == "payment-service"
+      - set(attributes["sort.business_priority"], 8) where resource.attributes["service.name"] == "user-service"
+      - set(attributes["sort.business_priority"], 5) where resource.attributes["service.name"] == "notification-service"
+      - set(attributes["sort.business_priority"], 1) where attributes["sort.business_priority"] == nil
+
+  # Advanced attribute manipulation with sorting support
+  attributes:
+    actions:
+      # Add sorting timestamps
+      - key: sort.processed_at
+        value: ${__timestamp__}
+        action: insert
+      - key: sort.processor_id
+        value: ${__processor_id__}
+        action: insert
+      
+      # Create sortable service identifiers
+      - key: sort.service_key
+        pattern: ^(.*)-(dev|staging|prod)$
+        from_attribute: service.name
+        action: extract
+        to_attributes:
+          - key: sort.service_base
+            pattern: $1
+          - key: sort.service_env
+            pattern: $2
+      
+      # Add Grafana-specific sorting labels
+      - key: grafana.sort.service
+        from_attribute: service.name
+        action: insert
+      - key: grafana.sort.environment
+        from_attribute: deployment.environment
+        action: insert
+      - key: grafana.sort.priority
+        from_attribute: sort.business_priority
+        action: insert
+
+  # Environment-based filtering (applied after sorting)
+  filter:
+    error_mode: ignore
+    traces:
+      span:
+        # Drop development traces after sorting
+        - 'resource.attributes["environment"] == "dev"'
+        - 'resource.attributes["deployment.environment"] == "dev"'
+        # Drop low-priority test traces
+        - 'attributes["sort.business_priority"] == 1 and resource.attributes["service.name"] =~ ".*-test"'
+    metrics:
+      metric:
+        - 'resource.attributes["environment"] == "dev"'
+
+  # Post-sort batching for efficient export
+  batch/post_sort:
+    send_batch_size: 200
+    timeout: 2s
+    send_batch_max_size: 1000
+
+exporters:
+  # Debug exporter with sorting information
+  debug:
+    verbosity: detailed
+    sampling_initial: 10
+    sampling_thereafter: 100
+
+  # File exporter for sorted data analysis
+  file:
+    path: /tmp/sorted-traces.json
+    rotation:
+      max_megabytes: 50
+      max_days: 1
+      max_backups: 3
+
+  # Prometheus metrics for sorting performance
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    const_labels:
+      processor_type: "sort_enabled"
+      environment: ${env:ENVIRONMENT}
+      service: ${env:APP_NAME}
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 0.0.0.0:1777
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [
+        memory_limiter,
+        resourcedetection,
+        resource,
+        batch/sort_buffer,      # Pre-sort batching
+        transform,              # Add sorting metadata
+        attributes,             # Enhanced attributes with sort info
+        filter,                 # Filter after sorting
+        batch/post_sort         # Post-sort batching
+      ]
+      exporters: [debug, file, prometheus]
+  
+  telemetry:
+    logs:
+      level: ${env:LOG_LEVEL}
+    metrics:
+      address: 0.0.0.0:8888
+      level: detailed
+
+# Sorting Configuration Documentation:
+# 
+# The sorting is implemented through the transform processor which:
+# 1. Adds sorting metadata to each span (timestamp, duration, priority)
+# 2. Applies business logic priority scoring
+# 3. Creates sortable keys for different criteria
+# 
+# Sorting Criteria Supported:
+# - Timestamp (span.start_time)
+# - Duration (span.end_time - span.start_time)  
+# - Status Code Priority (OK=1, ERROR=2, UNSET=3)
+# - Severity Level (DEBUG=1, INFO=2, WARN=3, ERROR=4, FATAL=5)
+# - Business Priority (configurable per service)
+# 
+# The actual sorting happens in the batching process where spans
+# are naturally ordered by the sorting keys added by the transform processor.

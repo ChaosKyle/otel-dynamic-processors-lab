@@ -1,0 +1,198 @@
+# docker-compose-sort.yml
+# Enhanced version with sorting processor capabilities
+version: '3.8'
+
+services:
+  # The "Smart" Layer with Sorting: Processes, sorts, and filters data
+  otel-processor-sort:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-processor-sort
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./config/processor-config-with-sort.yaml:/etc/otelcol-contrib/config.yaml
+      - ./tmp:/tmp
+    ports:
+      - "13133:13133"  # Health check
+      - "8889:8889"    # Metrics
+      - "55679:55679"  # zPages
+      - "1777:1777"    # pprof
+    environment:
+      - APP_NAME=otel-sort-processor
+      - APP_VERSION=1.0.0
+      - SERVICE_NAMESPACE=otel-lab
+      - ENVIRONMENT=development
+      - LOG_LEVEL=info
+    networks:
+      - otel-net
+    depends_on:
+      - prometheus-local
+    restart: unless-stopped
+
+  # The "Collector" Layer: Receives and forwards data to sort processor
+  otel-collector-sort:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector-sort
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./config/collector-config-enhanced.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+      - "13134:13134"  # Health check
+      - "8888:8888"    # Metrics
+      - "55680:55680"  # zPages
+    environment:
+      - APP_NAME=otel-collector
+      - APP_VERSION=1.0.0
+      - SERVICE_NAMESPACE=otel-lab
+      - ENVIRONMENT=development
+      - SAMPLING_PERCENTAGE=100
+      - LOG_LEVEL=info
+    networks:
+      - otel-net
+    depends_on:
+      - otel-processor-sort
+    restart: unless-stopped
+
+  # Sample App 1: High Priority Service (payment-service)
+  telemetrygen-payment:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+    container_name: telemetrygen-payment
+    command:
+      - "traces"
+      - "--rate=2"
+      - "--duration=60m"
+      - "--otlp-insecure"
+      - "--otlp-endpoint=otel-collector-sort:4317"
+      - "--otlp-attributes=service.name=\"payment-service\""
+      - "--otlp-attributes=environment=\"prod\""
+      - "--otlp-attributes=service.version=\"2.1.0\""
+      - "--otlp-attributes=priority=\"high\""
+    depends_on:
+      - otel-collector-sort
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # Sample App 2: Medium Priority Service (user-service)
+  telemetrygen-user:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+    container_name: telemetrygen-user
+    command:
+      - "traces"
+      - "--rate=3"
+      - "--duration=60m"
+      - "--otlp-insecure"
+      - "--otlp-endpoint=otel-collector-sort:4317"
+      - "--otlp-attributes=service.name=\"user-service\""
+      - "--otlp-attributes=environment=\"prod\""
+      - "--otlp-attributes=service.version=\"1.8.0\""
+      - "--otlp-attributes=priority=\"medium\""
+    depends_on:
+      - otel-collector-sort
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # Sample App 3: Low Priority Service (notification-service)
+  telemetrygen-notification:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+    container_name: telemetrygen-notification
+    command:
+      - "traces"
+      - "--rate=1"
+      - "--duration=60m"
+      - "--otlp-insecure"
+      - "--otlp-endpoint=otel-collector-sort:4317"
+      - "--otlp-attributes=service.name=\"notification-service\""
+      - "--otlp-attributes=environment=\"prod\""
+      - "--otlp-attributes=service.version=\"1.3.0\""
+      - "--otlp-attributes=priority=\"low\""
+    depends_on:
+      - otel-collector-sort
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # Sample App 4: Development Environment (should be filtered out)
+  telemetrygen-dev:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+    container_name: telemetrygen-dev
+    command:
+      - "traces"
+      - "--rate=5"
+      - "--duration=60m"
+      - "--otlp-insecure"
+      - "--otlp-endpoint=otel-collector-sort:4317"
+      - "--otlp-attributes=service.name=\"test-service\""
+      - "--otlp-attributes=environment=\"dev\""
+      - "--otlp-attributes=service.version=\"0.1.0\""
+      - "--otlp-attributes=priority=\"debug\""
+    depends_on:
+      - otel-collector-sort
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # Local Prometheus for metrics collection
+  prometheus-local:
+    image: prom/prometheus:latest
+    container_name: prometheus-local
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - otel-net
+    restart: unless-stopped
+
+  # Grafana for visualization
+  grafana-local:
+    image: grafana/grafana:latest
+    container_name: grafana-local
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    networks:
+      - otel-net
+    depends_on:
+      - prometheus-local
+    restart: unless-stopped
+
+  # Test runner container for running benchmarks
+  test-runner:
+    image: python:3.11-slim
+    container_name: test-runner
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: ["sleep", "infinity"]
+    networks:
+      - otel-net
+    depends_on:
+      - otel-processor-sort
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  otel-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
