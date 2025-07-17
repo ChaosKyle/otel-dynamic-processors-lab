@@ -78,37 +78,31 @@ EOF
 
 ## 🏗️ Architecture Overview
 
-```mermaid
-graph TB
-    A[Applications] --> B[Collector Layer]
-    B --> C[Processor Layer]
-    C --> D[Grafana Cloud]
-    
-    subgraph "Collector Layer - Ingestion"
-        B1[Resource Detection]
-        B2[Basic Labeling]
-        B3[Sampling]
-        B4[Batching]
+```graph TD
+    subgraph "Production Hosts/Clusters"
+        App1[Application 1<br>(Instrumented with OTEL SDK)] -->|Telemetry (Traces/Metrics/Logs)| Agent1[OTEL Agent Collector<br>(Local Processing)]
+        App2[Application 2<br>(Instrumented with OTEL SDK)] -->|Telemetry| Agent2[OTEL Agent Collector<br>(Local Processing)]
+        AppN[Application N...] -->|Telemetry| AgentN[OTEL Agent Collector<br>(Local Processing)]
     end
-    
-    subgraph "Processor Layer - Intelligence"
-        C1[Advanced Filtering]
-        C2[Dynamic Labeling]
-        C3[Metric Transformation]
-        C4[Cloud Routing]
+
+    subgraph "Dynamic Config Management"
+        ConfigStore[Config Store<br>(e.g., etcd, Consul, File Watcher)] -->|Runtime Updates<br>(e.g., via OpAMP or Reload Signal)| Gateway
     end
-    
-    subgraph "Grafana Cloud"
-        D1[Tempo - Traces]
-        D2[Prometheus - Metrics]
-        D3[Loki - Logs]
+
+    Agent1 -->|Processed Data<br>(Batched, Filtered)| Gateway[OTEL Gateway Collector Cluster<br>(Aggregation, HA Scaling)]
+    Agent2 -->|Processed Data| Gateway
+    AgentN -->|Processed Data| Gateway
+
+    subgraph "Gateway Pipeline (Dynamic Processors)"
+        Receiver[Receivers<br>(e.g., OTLP/gRPC)] --> ProcStatic[Static Processors<br>(e.g., Batch, Memory Limiter)]
+        ProcStatic --> ProcDynamic[Dynamic Processors<br>(e.g., Attribute Insert, Filter<br>Updated via Config Store)]
+        ProcDynamic --> Exporter[Exporters<br>(e.g., Jaeger, Prometheus, OTLP)]
     end
-    
-    B --> B1 --> B2 --> B3 --> B4
-    C --> C1 --> C2 --> C3 --> C4
-    C4 --> D1
-    C4 --> D2
-    C4 --> D3
+
+    Gateway -->|Exported Data<br>(Secure TLS)| Backend[Backends<br>(e.g., Jaeger for Traces,<br>Prometheus for Metrics,<br>Loki/ELK for Logs)]
+    Gateway -->|Fallback Export| BackupBackend[Backup/Secondary Backends]
+
+    SelfMonitor[Collector Self-Monitoring<br>(Metrics on Pipeline Health)] --> Gateway
 ```
 
 ## 🔧 Dynamic Processors Deep Dive
