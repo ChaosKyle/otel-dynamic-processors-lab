@@ -78,7 +78,8 @@ EOF
 
 ## 🏗️ Architecture Overview
 
-```graph TD
+```mermaid:disable-run
+graph TD
     subgraph "Production Hosts/Clusters"
         App1[Application 1<br>(Instrumented with OTEL SDK)] -->|Telemetry (Traces/Metrics/Logs)| Agent1[OTEL Agent Collector<br>(Local Processing)]
         App2[Application 2<br>(Instrumented with OTEL SDK)] -->|Telemetry| Agent2[OTEL Agent Collector<br>(Local Processing)]
