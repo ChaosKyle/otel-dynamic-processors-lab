@@ -1,0 +1,214 @@
+# OpenTelemetry Collector Configuration with Grok Recommendation Engine
+# This configuration integrates the Grok recommendation engine for intelligent filtering
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Memory limiter for stability
+  memory_limiter:
+    limit_mib: 1024
+    spike_limit_mib: 256
+    check_interval: 1s
+
+  # Resource detection
+  resourcedetection:
+    detectors: [docker, system, process]
+    docker:
+      resource_attributes:
+        host.name:
+          enabled: true
+        os.type:
+          enabled: true
+        container.image.name:
+          enabled: true
+        container.image.tag:
+          enabled: true
+    system:
+      resource_attributes:
+        host.name:
+          enabled: true
+        host.id:
+          enabled: true
+        os.description:
+          enabled: true
+        os.type:
+          enabled: true
+
+  # Enhanced resource attributes
+  resource:
+    attributes:
+      - key: service.name
+        value: ${env:APP_NAME}
+        action: upsert
+      - key: service.version
+        value: ${env:APP_VERSION}
+        action: upsert
+      - key: deployment.environment
+        value: ${env:ENVIRONMENT}
+        action: upsert
+      - key: grok.processor.enabled
+        value: "true"
+        action: upsert
+
+  # Grok Recommendation Engine Processor
+  grok_recommender:
+    # Grok API configuration
+    api_key: ${env:GROK_API_KEY}
+    max_sample_size: 100
+    sampling_interval: 5m
+    
+    # Caching and rate limiting
+    enable_cache: true
+    cache_expiration: 1h
+    enable_rate_limit: true
+    rate_limit_rpm: 60
+    
+    # Fallback and error handling
+    fallback_to_static: true
+    log_level: info
+    
+    # Label policies
+    policy_file: "/etc/otel/policies.yaml"
+    required_labels:
+      - environment
+      - service.name
+      - service.version
+    forbidden_labels:
+      - internal_id
+      - secret
+      - password
+    
+    # Filter application
+    auto_apply_filters: true
+    max_filter_rules: 50
+    filter_timeout: 10s
+    
+    # Monitoring
+    metrics_enabled: true
+    metrics_interval: 1m
+
+  # Standard attribute processor for basic transformations
+  attributes:
+    actions:
+      - key: grok.processed
+        value: "true"
+        action: insert
+      - key: grok.timestamp
+        value: ${__timestamp__}
+        action: insert
+      - key: grok.processor.version
+        value: "1.0.0"
+        action: insert
+
+  # Batch processor for efficiency
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+    send_batch_max_size: 1024
+
+exporters:
+  # Debug exporter for development
+  debug:
+    verbosity: detailed
+    sampling_initial: 10
+    sampling_thereafter: 100
+
+  # File exporter for recommendation logs
+  file/recommendations:
+    path: /tmp/grok-recommendations.json
+    rotation:
+      max_megabytes: 10
+      max_days: 7
+      max_backups: 3
+
+  # Prometheus metrics for monitoring
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    const_labels:
+      processor_type: "grok_recommender"
+      environment: ${env:ENVIRONMENT}
+      service: ${env:APP_NAME}
+
+  # Optional: Forward to existing pipeline
+  otlp/downstream:
+    endpoint: ${env:DOWNSTREAM_ENDPOINT}
+    tls:
+      insecure: true
+    headers:
+      "x-grok-processed": "true"
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  
+  pprof:
+    endpoint: 0.0.0.0:1777
+  
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+  
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [
+        memory_limiter,
+        resourcedetection,
+        resource,
+        grok_recommender,  # Apply Grok recommendations
+        attributes,
+        batch
+      ]
+      exporters: [debug, file/recommendations, prometheus]
+    
+    metrics:
+      receivers: [otlp]
+      processors: [
+        memory_limiter,
+        resourcedetection,
+        resource,
+        grok_recommender,  # Apply Grok recommendations
+        attributes,
+        batch
+      ]
+      exporters: [debug, file/recommendations, prometheus]
+    
+    logs:
+      receivers: [otlp]
+      processors: [
+        memory_limiter,
+        resourcedetection,
+        resource,
+        grok_recommender,  # Apply Grok recommendations
+        attributes,
+        batch
+      ]
+      exporters: [debug, file/recommendations, prometheus]
+  
+  telemetry:
+    logs:
+      level: ${env:LOG_LEVEL}
+    metrics:
+      address: 0.0.0.0:8888
+      level: detailed
+
+# Configuration Notes:
+# 
+# 1. Set GROK_API_KEY environment variable with your xAI API key
+# 2. The processor will sample telemetry data every 5 minutes
+# 3. Recommendations are cached for 1 hour to avoid excessive API calls
+# 4. Rate limiting is set to 60 requests per minute
+# 5. Static recommendations are used as fallback if API fails
+# 6. Auto-apply filters is enabled - recommendations are automatically applied
+# 7. Maximum of 50 filter rules can be active at once
+# 8. Metrics are exported to track processor performance
+# 9. Recommendations are logged to /tmp/grok-recommendations.json
+# 10. Health checks are available at :13133/health
