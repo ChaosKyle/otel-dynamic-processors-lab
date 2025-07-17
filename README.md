@@ -78,32 +78,32 @@ EOF
 
 ## 🏗️ Architecture Overview
 
-```mermaid:disable-run
+```mermaid
 graph TD
     subgraph "Production Hosts/Clusters"
-        App1[Application 1<br>(Instrumented with OTEL SDK)] -->|Telemetry (Traces/Metrics/Logs)| Agent1[OTEL Agent Collector<br>(Local Processing)]
-        App2[Application 2<br>(Instrumented with OTEL SDK)] -->|Telemetry| Agent2[OTEL Agent Collector<br>(Local Processing)]
-        AppN[Application N...] -->|Telemetry| AgentN[OTEL Agent Collector<br>(Local Processing)]
+        App1["Application 1\n(Instrumented with OTEL SDK)"] -->|"Telemetry\n(Traces/Metrics/Logs)"| Agent1["OTEL Agent Collector\n(Local Processing)"]
+        App2["Application 2\n(Instrumented with OTEL SDK)"] -->|Telemetry| Agent2["OTEL Agent Collector\n(Local Processing)"]
+        AppN["Application N..."] -->|Telemetry| AgentN["OTEL Agent Collector\n(Local Processing)"]
     end
 
     subgraph "Dynamic Config Management"
-        ConfigStore[Config Store<br>(e.g., etcd, Consul, File Watcher)] -->|Runtime Updates<br>(e.g., via OpAMP or Reload Signal)| Gateway
+        ConfigStore["Config Store\n(e.g., etcd, Consul, File Watcher)"] -->|"Runtime Updates\n(e.g., via OpAMP or Reload Signal)"| Gateway
     end
 
-    Agent1 -->|Processed Data<br>(Batched, Filtered)| Gateway[OTEL Gateway Collector Cluster<br>(Aggregation, HA Scaling)]
-    Agent2 -->|Processed Data| Gateway
-    AgentN -->|Processed Data| Gateway
+    Agent1 -->|"Processed Data\n(Batched, Filtered)"| Gateway["OTEL Gateway Collector Cluster\n(Aggregation, HA Scaling)"]
+    Agent2 -->|"Processed Data"| Gateway
+    AgentN -->|"Processed Data"| Gateway
 
     subgraph "Gateway Pipeline (Dynamic Processors)"
-        Receiver[Receivers<br>(e.g., OTLP/gRPC)] --> ProcStatic[Static Processors<br>(e.g., Batch, Memory Limiter)]
-        ProcStatic --> ProcDynamic[Dynamic Processors<br>(e.g., Attribute Insert, Filter<br>Updated via Config Store)]
-        ProcDynamic --> Exporter[Exporters<br>(e.g., Jaeger, Prometheus, OTLP)]
+        Receiver["Receivers\n(e.g., OTLP/gRPC)"] --> ProcStatic["Static Processors\n(e.g., Batch, Memory Limiter)"]
+        ProcStatic --> ProcDynamic["Dynamic Processors\n(e.g., Attribute Insert, Filter\nUpdated via Config Store)"]
+        ProcDynamic --> Exporter["Exporters\n(e.g., Jaeger, Prometheus, OTLP)"]
     end
 
-    Gateway -->|Exported Data<br>(Secure TLS)| Backend[Backends<br>(e.g., Jaeger for Traces,<br>Prometheus for Metrics,<br>Loki/ELK for Logs)]
-    Gateway -->|Fallback Export| BackupBackend[Backup/Secondary Backends]
+    Gateway -->|"Exported Data\n(Secure TLS)"| Backend["Backends\n(e.g., Jaeger for Traces,\nPrometheus for Metrics,\nLoki/ELK for Logs)"]
+    Gateway -->|"Fallback Export"| BackupBackend["Backup/Secondary Backends"]
 
-    SelfMonitor[Collector Self-Monitoring<br>(Metrics on Pipeline Health)] --> Gateway
+    SelfMonitor["Collector Self-Monitoring\n(Metrics on Pipeline Health)"] --> Gateway
 ```
 
 ## 🔧 Dynamic Processors Deep Dive
