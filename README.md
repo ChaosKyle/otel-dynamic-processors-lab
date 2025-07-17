@@ -41,8 +41,8 @@ cd otel-docker-lab
 cat > .env << EOF
 GRAFANA_CLOUD_INSTANCE_ID=123456
 GRAFANA_CLOUD_API_KEY=glc_your_api_key_here
-GRAFANA_CLOUD_PROMETHEUS_URL=https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push
-GRAFANA_CLOUD_TEMPO_URL=https://tempo-prod-04-eu-west-0.grafana.net:443
+GRAFANA_CLOUD_PROMETHEUS_URL=your url here
+GRAFANA_CLOUD_TEMPO_URL=your tempo url here
 
 # Application settings
 APP_NAME=my-awesome-app
