@@ -415,32 +415,93 @@ The **Grok Recommendation Engine** integrates **xAI's Grok 4** to provide intell
 
 ```mermaid
 graph TB
-    subgraph "Telemetry Input"
-        A[Traces] --> D[Sampling & Anonymization]
-        B[Metrics] --> D
-        C[Logs] --> D
+    subgraph "Applications"
+        APP1[Payment Service]
+        APP2[User Service] 
+        APP3[Notification Service]
     end
     
-    subgraph "Grok Recommendation Engine"
-        D --> E[Telemetry Sampler]
-        E --> F[Data Anonymizer]
-        F --> G[Grok API Client]
-        G --> H[xAI Grok 4]
-        H --> I[Recommendation Parser]
-        I --> J[Filter Rule Generator]
+    subgraph "Collector Layer - Ingestion"
+        COL[OTel Collector]
+        COL1[Resource Detection]
+        COL2[Basic Labeling]
+        COL3[Sampling]
+        COL4[Batching]
     end
     
-    subgraph "OTel Integration"
-        J --> K[Dynamic Filter Processor]
-        K --> L[Policy Enforcement]
-        L --> M[Optimized Output]
+    subgraph "Processor Layer - Intelligence + AI"
+        PROC[OTel Processor with Grok]
+        GROK[Grok Recommender]
+        
+        subgraph "Grok AI Engine"
+            SAMP[Telemetry Sampler]
+            ANON[Data Anonymizer]
+            API[Grok API Client]
+            AI[xAI Grok 4]
+            PARSE[Recommendation Parser]
+            RULES[Filter Rule Generator]
+        end
+        
+        FILTER[Dynamic Filter]
+        POLICY[Policy Enforcement]
+        ATTR[Attribute Processor]
+        BATCH[Final Batching]
+    end
+    
+    subgraph "Output Destinations"
+        GRAFANA[Grafana Cloud]
+        PROM[Prometheus]
+        DEBUG[Debug Output]
     end
     
     subgraph "Management & Monitoring"
-        N[CLI Tools] --> G
-        O[Policy Manager] --> L
-        P[Metrics & Alerts] --> K
+        CLI[CLI Tools]
+        POL[Policy Manager]
+        METRICS[Metrics & Health]
     end
+    
+    %% Data flow
+    APP1 --> COL
+    APP2 --> COL
+    APP3 --> COL
+    
+    COL --> COL1 --> COL2 --> COL3 --> COL4
+    COL4 --> PROC
+    
+    %% Processor internal flow
+    PROC --> GROK
+    GROK --> SAMP --> ANON --> API --> AI
+    AI --> PARSE --> RULES
+    RULES --> FILTER
+    
+    PROC --> FILTER --> POLICY --> ATTR --> BATCH
+    
+    %% AI feedback loop
+    GROK -.->|Sample & Analyze| SAMP
+    RULES -.->|Apply Recommendations| FILTER
+    
+    %% Output
+    BATCH --> GRAFANA
+    BATCH --> PROM
+    BATCH --> DEBUG
+    
+    %% Management
+    CLI --> API
+    POL --> POLICY
+    METRICS --> PROC
+    
+    %% Styling
+    classDef collector fill:#e1f5fe
+    classDef processor fill:#f3e5f5
+    classDef ai fill:#fff3e0
+    classDef output fill:#e8f5e8
+    classDef mgmt fill:#fce4ec
+    
+    class COL,COL1,COL2,COL3,COL4 collector
+    class PROC,GROK,FILTER,POLICY,ATTR,BATCH processor
+    class SAMP,ANON,API,AI,PARSE,RULES ai
+    class GRAFANA,PROM,DEBUG output
+    class CLI,POL,METRICS mgmt
 ```
 
 ### Setup Instructions
