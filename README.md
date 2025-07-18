@@ -78,32 +78,37 @@ EOF
 
 ## 🏗️ Architecture Overview
 
+
 ```mermaid
 graph TD
-    subgraph "Production Hosts/Clusters"
-        App1["Application 1\n(Instrumented with OTEL SDK)"] -->|"Telemetry\n(Traces/Metrics/Logs)"| Agent1["OTEL Agent Collector\n(Local Processing)"]
-        App2["Application 2\n(Instrumented with OTEL SDK)"] -->|Telemetry| Agent2["OTEL Agent Collector\n(Local Processing)"]
-        AppN["Application N..."] -->|Telemetry| AgentN["OTEL Agent Collector\n(Local Processing)"]
+    subgraph "Data Sources"
+        App1[Application 1]
+        App2[Application 2]
+        Server1[Server 1]
+        Server2[Server 2]
     end
 
-    subgraph "Dynamic Config Management"
-        ConfigStore["Config Store\n(e.g., etcd, Consul, File Watcher)"] -->|"Runtime Updates\n(e.g., via OpAMP or Reload Signal)"| Gateway
+    subgraph "Collectors Tier"
+        Collector1[Collector 1]
+        Collector2[Collector 2]
     end
 
-    Agent1 -->|"Processed Data\n(Batched, Filtered)"| Gateway["OTEL Gateway Collector Cluster\n(Aggregation, HA Scaling)"]
-    Agent2 -->|"Processed Data"| Gateway
-    AgentN -->|"Processed Data"| Gateway
-
-    subgraph "Gateway Pipeline (Dynamic Processors)"
-        Receiver["Receivers\n(e.g., OTLP/gRPC)"] --> ProcStatic["Static Processors\n(e.g., Batch, Memory Limiter)"]
-        ProcStatic --> ProcDynamic["Dynamic Processors\n(e.g., Attribute Insert, Filter\nUpdated via Config Store)"]
-        ProcDynamic --> Exporter["Exporters\n(e.g., Jaeger, Prometheus, OTLP)"]
+    subgraph "Distribution Layer"
+        DistLayer[Distribution Layer<br>Enriches, Aggregates, or Drops Data]
     end
 
-    Gateway -->|"Exported Data\n(Secure TLS)"| Backend["Backends\n(e.g., Jaeger for Traces,\nPrometheus for Metrics,\nLoki/ELK for Logs)"]
-    Gateway -->|"Fallback Export"| BackupBackend["Backup/Secondary Backends"]
+    Backend[Grafana Cloud<br>(SaaS Backend)]
 
-    SelfMonitor["Collector Self-Monitoring\n(Metrics on Pipeline Health)"] --> Gateway
+    App1 --> Collector1
+    App2 --> Collector1
+    Server1 --> Collector2
+    Server2 --> Collector2
+
+    Collector1 --> DistLayer
+    Collector2 --> DistLayer
+
+    DistLayer --> Backend
+```
 ```
 
 ## 🔧 Dynamic Processors Deep Dive
