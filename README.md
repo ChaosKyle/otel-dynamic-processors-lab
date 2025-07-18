@@ -80,33 +80,17 @@ EOF
 ## 🏗️ Architecture Overview
 
 ```mermaid
-graph TB
-    A[Applications] --> B[Collector Layer]
+graph LR
+    A[Telemetry Data] --> B[Collector Layer]
     B --> C[Processor Layer]
-    C --> D[Grafana Cloud]
+    C --> D[Grafana Cloud Backend]
+    C --> E[Cloud Storage]
     
-    subgraph "Collector Layer - Ingestion"
-        B1[Resource Detection]
-        B2[Basic Labeling]
-        B3[Sampling]
-        B4[Batching]
-    end
-    
-    subgraph "Processor Layer - Intelligence"
-        C1[Advanced Filtering]
-        C2[Dynamic Labeling]
-        C3[Metric Transformation]
-        C4[Cloud Routing]
-    end
-    
-    subgraph "Grafana Cloud"
-        D1[Tempo - Traces]
-        D2[Prometheus - Metrics]
-        D3[Loki - Logs]
-    end
-    
-    B --> B1 --> B2 --> B3 --> B4
-    C --> C1 --> C2 --> C3 --> C4
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5
+    style C fill:#e8f5e8
+    style D fill:#fff3e0
+    style E fill:#ffebee
     C4 --> D1
     C4 --> D2
     C4 --> D3
