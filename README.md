@@ -94,10 +94,10 @@ graph TD
     end
 
     subgraph "Distribution Layer"
-        DistLayer[Distribution Layer<br>Enriches, Aggregates, or Drops Data]
+        DistLayer["Distribution Layer<br>Enriches, Aggregates, or Drops Data"]
     end
 
-    Backend[Grafana Cloud<br>(SaaS Backend)]
+    Backend["Grafana Cloud<br>(SaaS Backend)"]
 
     App1 --> Collector1
     App2 --> Collector1
