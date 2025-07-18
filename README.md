@@ -109,7 +109,6 @@ graph TD
 
     DistLayer --> Backend
 ```
-```
 
 ## 🔧 Dynamic Processors Deep Dive
 
