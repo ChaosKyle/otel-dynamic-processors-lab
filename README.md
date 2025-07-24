@@ -42,8 +42,8 @@ cd otel-docker-lab
 cat > .env << EOF
 GRAFANA_CLOUD_INSTANCE_ID=123456
 GRAFANA_CLOUD_API_KEY=glc_your_api_key_here
-GRAFANA_CLOUD_PROMETHEUS_URL=https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push
-GRAFANA_CLOUD_TEMPO_URL=https://tempo-prod-04-eu-west-0.grafana.net:443
+GRAFANA_CLOUD_PROMETHEUS_URL=your url here
+GRAFANA_CLOUD_TEMPO_URL=your tempo url here
 
 # Application settings
 APP_NAME=my-awesome-app
@@ -79,21 +79,8 @@ EOF
 
 ## 🏗️ Architecture Overview
 
-```mermaid
-graph LR
-    A[Telemetry Data] --> B[Collector Layer]
-    B --> C[Processor Layer]
-    C --> D[Grafana Cloud Backend]
-    C --> E[Cloud Storage]
-    
-    style A fill:#e1f5fe
-    style B fill:#f3e5f5
-    style C fill:#e8f5e8
-    style D fill:#fff3e0
-    style E fill:#ffebee
-    C4 --> D1
-    C4 --> D2
-    C4 --> D3
+
+
 ```
 
 ## 🔧 Dynamic Processors Deep Dive
