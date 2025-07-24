@@ -1,0 +1,203 @@
+// Basic Grafana Alloy Template for OpenTelemetry Dynamic Processors
+// This template provides the core functionality without advanced sorting
+
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+// =============================================================================
+// RECEIVERS
+// =============================================================================
+
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+  
+  output {
+    metrics = [otelcol.processor.memory_limiter.default.input]
+    logs    = [otelcol.processor.memory_limiter.default.input]
+    traces  = [otelcol.processor.memory_limiter.default.input]
+  }
+}
+
+// =============================================================================
+// PROCESSORS
+// =============================================================================
+
+// Memory limiter
+otelcol.processor.memory_limiter "default" {
+  limit_mib      = 512
+  spike_limit_mib = 128
+  check_interval = "1s"
+  
+  output {
+    metrics = [otelcol.processor.resourcedetection.default.input]
+    logs    = [otelcol.processor.resourcedetection.default.input]
+    traces  = [otelcol.processor.resourcedetection.default.input]
+  }
+}
+
+// Resource detection
+otelcol.processor.resourcedetection "default" {
+  detectors = ["docker", "system", "process", "env"]
+  
+  docker {
+    resource_attributes {
+      host_name {
+        enabled = true
+      }
+      container_image_name {
+        enabled = true
+      }
+      container_image_tag {
+        enabled = true
+      }
+    }
+  }
+  
+  system {
+    resource_attributes {
+      host_name {
+        enabled = true
+      }
+      host_id {
+        enabled = true
+      }
+      os_type {
+        enabled = true
+      }
+    }
+  }
+  
+  process {
+    resource_attributes {
+      process_pid {
+        enabled = true
+      }
+      process_executable_name {
+        enabled = true
+      }
+    }
+  }
+  
+  output {
+    metrics = [otelcol.processor.resource.default.input]
+    logs    = [otelcol.processor.resource.default.input]
+    traces  = [otelcol.processor.resource.default.input]
+  }
+}
+
+// Resource attributes
+otelcol.processor.resource "default" {
+  attributes {
+    action = "upsert"
+    key    = "service.name"
+    value  = env("APP_NAME")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "service.version"
+    value  = env("APP_VERSION")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "deployment.environment"
+    value  = env("ENVIRONMENT") 
+  }
+  
+  output {
+    metrics = [otelcol.processor.attributes.default.input]
+    logs    = [otelcol.processor.attributes.default.input]
+    traces  = [otelcol.processor.attributes.default.input]
+  }
+}
+
+// Attributes processor
+otelcol.processor.attributes "default" {
+  action {
+    key           = "grafana.service.name"
+    from_attribute = "service.name"
+    action        = "insert"
+  }
+  
+  action {
+    key           = "grafana.environment"
+    from_attribute = "deployment.environment"
+    action        = "insert"
+  }
+  
+  output {
+    metrics = [otelcol.processor.filter.default.input]
+    logs    = [otelcol.processor.filter.default.input]
+    traces  = [otelcol.processor.filter.default.input]
+  }
+}
+
+// Filter processor
+otelcol.processor.filter "default" {
+  traces {
+    span {
+      span_statement = "resource.attributes[\"environment\"] == \"dev\""
+    }
+  }
+  
+  metrics {
+    metric {
+      metric_statement = "resource.attributes[\"environment\"] == \"dev\""
+    }
+  }
+  
+  output {
+    metrics = [otelcol.processor.batch.default.input]
+    logs    = [otelcol.processor.batch.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+  }
+}
+
+// Batch processor
+otelcol.processor.batch "default" {
+  send_batch_size     = 1024
+  timeout             = "10s"
+  send_batch_max_size = 2048
+  
+  output {
+    metrics = [otelcol.exporter.prometheus.local.input]
+    logs    = [otelcol.exporter.debug.default.input]
+    traces  = [otelcol.exporter.debug.default.input]
+  }
+}
+
+// =============================================================================
+// EXPORTERS
+// =============================================================================
+
+// Debug exporter
+otelcol.exporter.debug "default" {
+  verbosity = "basic"
+}
+
+// Local Prometheus exporter
+otelcol.exporter.prometheus "local" {
+  endpoint = "0.0.0.0:8889"
+  
+  const_labels = {
+    environment = env("ENVIRONMENT"),
+    service     = env("APP_NAME"),
+  }
+}
+
+// =============================================================================
+// EXTENSIONS
+// =============================================================================
+
+otelcol.extension.health_check "default" {
+  endpoint = "0.0.0.0:13133"
+}

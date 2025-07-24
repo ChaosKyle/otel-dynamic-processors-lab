@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "alloy-dynamic-processors.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "alloy-dynamic-processors.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alloy
+  {{- with .Values.alloy.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.alloy.service.type }}
+  ports:
+    - port: {{ .Values.alloy.service.ports.http }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.alloy.service.ports.otlp-grpc }}
+      targetPort: otlp-grpc
+      protocol: TCP
+      name: otlp-grpc
+    - port: {{ .Values.alloy.service.ports.otlp-http }}
+      targetPort: otlp-http
+      protocol: TCP
+      name: otlp-http
+    - port: {{ .Values.alloy.service.ports.health }}
+      targetPort: health
+      protocol: TCP
+      name: health
+    - port: {{ .Values.alloy.service.ports.metrics }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    - port: {{ .Values.alloy.service.ports.zpages }}
+      targetPort: zpages
+      protocol: TCP
+      name: zpages
+    - port: {{ .Values.alloy.service.ports.pprof }}
+      targetPort: pprof
+      protocol: TCP
+      name: pprof
+  selector:
+    {{- include "alloy-dynamic-processors.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: alloy

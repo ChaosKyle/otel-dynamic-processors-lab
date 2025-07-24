@@ -1,0 +1,468 @@
+// Production Grafana Cloud Configuration with Full Dynamic Processing
+// Optimized for production workloads with cost-effective filtering and sorting
+
+logging {
+  level  = "warn"
+  format = "json"
+}
+
+// =============================================================================
+// DISCOVERY - Production Resource Detection  
+// =============================================================================
+
+discovery.kubernetes "pods" {
+  role = "pod"
+  
+  selectors {
+    role  = "pod"
+    field = "spec.nodeName=" + env("NODE_NAME")
+  }
+}
+
+discovery.kubernetes "services" {
+  role = "service"
+}
+
+// =============================================================================
+// RECEIVERS
+// =============================================================================
+
+otelcol.receiver.otlp "production" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+    
+    tls {
+      insecure = false
+      cert_file = "/etc/certs/server.crt"
+      key_file  = "/etc/certs/server.key"
+    }
+  }
+  
+  http {
+    endpoint = "0.0.0.0:4318"
+    
+    tls {
+      insecure = false
+      cert_file = "/etc/certs/server.crt" 
+      key_file  = "/etc/certs/server.key"
+    }
+  }
+  
+  output {
+    metrics = [otelcol.processor.memory_limiter.production.input]
+    logs    = [otelcol.processor.memory_limiter.production.input]
+    traces  = [otelcol.processor.memory_limiter.production.input]
+  }
+}
+
+// =============================================================================
+// PROCESSORS - Production Pipeline
+// =============================================================================
+
+// Production memory limits
+otelcol.processor.memory_limiter "production" {
+  limit_mib      = 2048
+  spike_limit_mib = 512
+  check_interval = "1s"
+  
+  output {
+    metrics = [otelcol.processor.resourcedetection.production.input]
+    logs    = [otelcol.processor.resourcedetection.production.input]  
+    traces  = [otelcol.processor.resourcedetection.production.input]
+  }
+}
+
+// Enhanced resource detection for Kubernetes
+otelcol.processor.resourcedetection "production" {
+  detectors = ["k8s_node", "k8s_pod", "docker", "system"]
+  
+  k8s_node {
+    auth_type = "serviceAccount"
+    resource_attributes {
+      k8s_node_name {
+        enabled = true
+      }
+      k8s_node_uid {
+        enabled = true
+      }
+    }
+  }
+  
+  k8s_pod {
+    auth_type = "serviceAccount"
+    resource_attributes {
+      k8s_pod_name {
+        enabled = true
+      }
+      k8s_pod_uid {
+        enabled = true
+      }
+      k8s_namespace_name {
+        enabled = true
+      }
+      k8s_deployment_name {
+        enabled = true
+      }
+    }
+  }
+  
+  docker {
+    resource_attributes {
+      host_name {
+        enabled = true
+      }
+      container_image_name {
+        enabled = true
+      }
+      container_image_tag {
+        enabled = true
+      }
+    }
+  }
+  
+  output {
+    metrics = [otelcol.processor.resource.production.input]
+    logs    = [otelcol.processor.resource.production.input]
+    traces  = [otelcol.processor.resource.production.input]
+  }
+}
+
+// Production resource attributes
+otelcol.processor.resource "production" {
+  attributes {
+    action = "upsert"
+    key    = "service.name"
+    value  = env("APP_NAME")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "service.version"
+    value  = env("APP_VERSION")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "deployment.environment"
+    value  = "production"
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "k8s.cluster.name"
+    value  = env("K8S_CLUSTER_NAME")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "cloud.region"
+    value  = env("CLOUD_REGION")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "grafana.cloud.instance"
+    value  = env("GRAFANA_CLOUD_INSTANCE_ID")
+  }
+  
+  output {
+    metrics = [otelcol.processor.probabilistic_sampler.production.input]
+    logs    = [otelcol.processor.attributes.production.input]
+    traces  = [otelcol.processor.probabilistic_sampler.production.input]
+  }
+}
+
+// Production sampling for cost optimization
+otelcol.processor.probabilistic_sampler "production" {
+  sampling_percentage = 1.0  // 1% sampling for production
+  
+  output {
+    traces = [otelcol.processor.attributes.production.input]
+  }
+}
+
+// Production attributes with Grafana Cloud optimization
+otelcol.processor.attributes "production" {
+  // Grafana Cloud labels
+  action {
+    key           = "grafana.service.name"
+    from_attribute = "service.name"
+    action        = "insert"
+  }
+  
+  action {
+    key           = "grafana.environment"
+    value         = "production"
+    action        = "insert"
+  }
+  
+  action {
+    key           = "grafana.cluster"
+    from_attribute = "k8s.cluster.name"
+    action        = "insert"
+  }
+  
+  action {
+    key           = "grafana.region"
+    from_attribute = "cloud.region"
+    action        = "insert"
+  }
+  
+  // Service mesh integration
+  action {
+    key           = "mesh.service.name"
+    from_attribute = "http.headers.x-envoy-original-dst-host"
+    action        = "insert"
+  }
+  
+  action {
+    key           = "mesh.source.workload"
+    from_attribute = "http.headers.x-envoy-peer-metadata-id"
+    action        = "insert"
+  }
+  
+  // Security and compliance labeling
+  action {
+    key     = "compliance.pci_required"
+    value   = "true"
+    action  = "insert"
+    conditions = [{
+      key     = "service.name"
+      pattern = ".*payment.*"
+    }]
+  }
+  
+  action {
+    key     = "security.scan.required"
+    value   = "true"
+    action  = "insert"
+    conditions = [{
+      key     = "http.url"
+      pattern = ".*/api/v1/.*"
+    }]
+  }
+  
+  output {
+    metrics = [otelcol.processor.filter.production.input]
+    logs    = [otelcol.processor.filter.production.input]
+    traces  = [otelcol.processor.filter.production.input]
+  }
+}
+
+// Aggressive production filtering for cost optimization
+otelcol.processor.filter "production" {
+  traces {
+    span {
+      // Drop health checks
+      span_statement = "attributes[\"http.url\"] matches \".*/health.*\""
+    }
+    
+    span {
+      // Drop internal monitoring
+      span_statement = "attributes[\"http.url\"] matches \".*/metrics.*\""
+    }
+    
+    span {
+      // Drop debug traces
+      span_statement = "attributes[\"level\"] == \"DEBUG\""
+    }
+    
+    span {
+      // Drop low-value spans
+      span_statement = "span.duration < 1000000"  // < 1ms
+    }
+  }
+  
+  metrics {
+    metric {
+      // Drop high-cardinality metrics
+      metric_statement = "name matches \".*histogram.*\" and labels[\"cardinality\"] > 1000"
+    }
+    
+    metric {
+      // Drop debug metrics
+      metric_statement = "name matches \".*debug.*\""
+    }
+  }
+  
+  output {
+    metrics = [otelcol.processor.metricstransform.production.input]
+    logs    = [otelcol.processor.transform.production.input]
+    traces  = [otelcol.processor.transform.production.input]
+  }
+}
+
+// Production metrics transformation
+otelcol.processor.metricstransform "production" {
+  transforms {
+    include    = ".*"
+    match_type = "regexp"
+    action     = "update"
+    
+    operations {
+      action     = "add_label"
+      new_label  = "grafana_instance"
+      new_value  = env("GRAFANA_CLOUD_INSTANCE_ID")
+    }
+    
+    operations {
+      action     = "add_label"
+      new_label  = "cluster"
+      new_value  = env("K8S_CLUSTER_NAME")
+    }
+    
+    operations {
+      action     = "add_label"
+      new_label  = "environment"
+      new_value  = "production"
+    }
+  }
+  
+  // Convert rate metrics
+  transforms {
+    include    = ".*_total"
+    match_type = "regexp"
+    action     = "update"
+    new_name   = "{{.}}_per_second"
+    
+    operations {
+      action = "experimental_scale_value"
+      value  = 0.016667  // Convert to per-second
+    }
+  }
+  
+  output {
+    metrics = [otelcol.processor.batch.production.input]
+  }
+}
+
+// Production transform with business logic
+otelcol.processor.transform "production" {
+  error_mode = "ignore"
+  
+  // Business transaction tracking
+  trace_statements {
+    statement = "set(attributes[\"business.transaction.value\"], attributes[\"order.total\"] * attributes[\"currency.rate\"]) where attributes[\"span.kind\"] == \"server\""
+  }
+  
+  // Customer tier detection
+  trace_statements {
+    statement = "set(attributes[\"customer.tier\"], \"premium\") where attributes[\"customer.id\"] matches \"^PREM.*\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"customer.tier\"], \"standard\") where attributes[\"customer.id\"] matches \"^STD.*\""
+  }
+  
+  // SLA metrics
+  trace_statements {
+    statement = "set(attributes[\"sla.met\"], true) where span.duration < 1000000000"  // < 1s
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sla.met\"], false) where span.duration >= 1000000000"  // >= 1s
+  }
+  
+  output {
+    logs   = [otelcol.processor.batch.production.input]
+    traces = [otelcol.processor.batch.production.input]
+  }
+}
+
+// Production batching for efficiency
+otelcol.processor.batch "production" {
+  send_batch_size     = 2048
+  timeout             = "5s"
+  send_batch_max_size = 4096
+  
+  output {
+    metrics = [otelcol.exporter.prometheusremotewrite.grafana_cloud.input]
+    logs    = [otelcol.exporter.loki.grafana_cloud.input]
+    traces  = [otelcol.exporter.otlp.grafana_cloud_tempo.input]
+  }
+}
+
+// =============================================================================
+// EXPORTERS - Grafana Cloud Production
+// =============================================================================
+
+// Grafana Cloud Tempo for traces
+otelcol.exporter.otlp "grafana_cloud_tempo" {
+  client {
+    endpoint = env("GRAFANA_CLOUD_TEMPO_URL")
+    
+    auth_extension = otelcol.auth.basic.grafana_cloud.handler
+    
+    tls {
+      insecure = false
+    }
+    
+    sending_queue {
+      enabled      = true
+      num_consumers = 8
+      queue_size   = 1000
+    }
+    
+    retry_on_failure {
+      enabled          = true
+      initial_interval = "5s"
+      max_interval     = "30s"
+      max_elapsed_time = "300s"
+    }
+  }
+}
+
+// Grafana Cloud Prometheus for metrics
+otelcol.exporter.prometheusremotewrite "grafana_cloud" {
+  endpoint = env("GRAFANA_CLOUD_PROMETHEUS_URL")
+  
+  auth_extension = otelcol.auth.basic.grafana_cloud.handler
+  
+  tls {
+    insecure = false
+  }
+  
+  timeout = "30s"
+  
+  retry_on_failure {
+    enabled          = true
+    initial_interval = "5s"
+    max_interval     = "30s"
+    max_elapsed_time = "300s"
+  }
+  
+  external_labels = {
+    cluster     = env("K8S_CLUSTER_NAME"),
+    environment = "production",
+    region      = env("CLOUD_REGION"),
+    instance    = env("GRAFANA_CLOUD_INSTANCE_ID"),
+  }
+}
+
+// Grafana Cloud Loki for logs
+otelcol.exporter.loki "grafana_cloud" {
+  endpoint = env("GRAFANA_CLOUD_LOKI_URL")
+  
+  auth_extension = otelcol.auth.basic.grafana_cloud.handler
+  
+  tls {
+    insecure = false
+  }
+}
+
+// =============================================================================
+// AUTH & EXTENSIONS
+// =============================================================================
+
+otelcol.auth.basic "grafana_cloud" {
+  username = env("GRAFANA_CLOUD_INSTANCE_ID")
+  password = env("GRAFANA_CLOUD_API_KEY")
+}
+
+otelcol.extension.health_check "production" {
+  endpoint = "0.0.0.0:13133"
+}
+
+otelcol.extension.pprof "production" {
+  endpoint = "0.0.0.0:1777"
+}
