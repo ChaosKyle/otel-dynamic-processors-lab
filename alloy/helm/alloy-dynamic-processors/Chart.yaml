@@ -1,0 +1,43 @@
+apiVersion: v2
+name: alloy-dynamic-processors
+description: Grafana Alloy Dynamic Processors with Intelligent Sorting and Grafana Cloud Integration
+type: application
+version: 1.0.0
+appVersion: "latest"
+home: https://github.com/ChaosKyle/otel-dynamic-processors-lab/alloy
+sources:
+  - https://github.com/ChaosKyle/otel-dynamic-processors-lab
+maintainers:
+  - name: ChaosKyle
+    url: https://github.com/ChaosKyle
+keywords:
+  - grafana
+  - alloy
+  - opentelemetry
+  - observability
+  - monitoring
+  - telemetry
+  - sorting
+  - dynamic-processors
+  - grafana-cloud
+  - devops
+  - sre
+annotations:
+  category: Analytics
+  licenses: MIT
+  grafana.com/operator: "alloy"
+  
+# Dependencies for enhanced functionality
+dependencies:
+  - name: prometheus
+    version: "25.8.0"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheus.enabled
+    tags:
+      - monitoring
+  - name: grafana
+    version: "7.0.19"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: grafana.enabled
+    tags:
+      - visualization

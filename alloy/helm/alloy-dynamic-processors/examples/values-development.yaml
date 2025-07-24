@@ -1,0 +1,104 @@
+# Development values for alloy-dynamic-processors
+# This is optimized for local development and testing
+
+# Alloy configuration for development
+alloy:
+  image:
+    tag: "latest"
+    pullPolicy: Always
+  
+  # Development configuration
+  config:
+    type: "enhanced-with-sort"
+    env:
+      APP_NAME: "alloy-dev-lab"
+      ENVIRONMENT: "development"
+      LOG_LEVEL: "debug"
+      K8S_CLUSTER_NAME: "dev-cluster"
+      CLOUD_REGION: "us-west-2"
+  
+  # Lower resource requirements for development
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  
+  # Smaller persistence for development
+  persistence:
+    enabled: true
+    size: 5Gi
+  
+  # More frequent health checks for development
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 15
+  
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+
+# Grafana Cloud integration (disabled for local development)
+grafanaCloud:
+  enabled: false
+
+# Enable local Prometheus and Grafana for development
+prometheus:
+  enabled: true
+  server:
+    persistentVolume:
+      size: 10Gi
+    resources:
+      limits:
+        cpu: 300m
+        memory: 512Mi
+      requests:
+        cpu: 150m
+        memory: 256Mi
+
+grafana:
+  enabled: true
+  adminPassword: "admin"
+  persistence:
+    enabled: true
+    size: 5Gi
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# Enable ServiceMonitor for Prometheus Operator
+serviceMonitor:
+  enabled: true
+  interval: 15s
+
+# Enable ingress for easy access
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  hosts:
+    - host: alloy-dev.local
+      paths:
+        - path: /
+          pathType: Prefix
+          port: http
+
+# Enable tests
+tests:
+  enabled: true
+
+# Development-specific labels
+commonLabels:
+  environment: development
+  tier: testing
+
+# Development annotations
+commonAnnotations:
+  description: "Development deployment of Alloy Dynamic Processors"

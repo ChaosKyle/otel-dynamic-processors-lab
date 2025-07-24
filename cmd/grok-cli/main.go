@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"path/to/your/repo/pkg/grok_recommender"
+	"github.com/ChaosKyle/otel-dynamic-processors-lab/pkg/grok_recommender"
 )
 
 var (

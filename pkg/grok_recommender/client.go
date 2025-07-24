@@ -12,9 +12,11 @@ import (
 
 // GrokClient handles communication with the xAI Grok API
 type GrokClient struct {
-	apiKey     string
-	baseURL    string
-	httpClient *http.Client
+	apiKey            string
+	baseURL           string
+	httpClient        *http.Client
+	resilienceManager *ResilienceManager
+	logger            Logger
 }
 
 // GrokRequest represents a request to the Grok API
@@ -56,12 +58,21 @@ type Usage struct {
 
 // NewGrokClient creates a new Grok API client
 func NewGrokClient(apiKey string) *GrokClient {
+	return NewGrokClientWithResilience(apiKey, DefaultResilienceConfig(), &defaultLogger{})
+}
+
+// NewGrokClientWithResilience creates a new Grok API client with custom resilience configuration
+func NewGrokClientWithResilience(apiKey string, resilienceConfig ResilienceConfig, logger Logger) *GrokClient {
+	resilienceManager := NewResilienceManager(resilienceConfig, logger)
+	
 	return &GrokClient{
-		apiKey:  apiKey,
-		baseURL: "https://api.x.ai/v1",
+		apiKey:            apiKey,
+		baseURL:           "https://api.x.ai/v1",
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: resilienceConfig.Timeout.RequestTimeout,
 		},
+		resilienceManager: resilienceManager,
+		logger:            logger,
 	}
 }
 
@@ -84,7 +95,15 @@ func (c *GrokClient) GenerateRecommendations(ctx context.Context, telemetryData 
 		Stream: false,
 	}
 	
-	return c.sendRequest(ctx, request)
+	// Execute with resilience features
+	var response *GrokResponse
+	err := c.resilienceManager.Execute(ctx, func() error {
+		var reqErr error
+		response, reqErr = c.sendRequest(ctx, request)
+		return reqErr
+	})
+	
+	return response, err
 }
 
 // buildPrompt constructs the prompt for Grok API
@@ -159,7 +178,22 @@ func (c *GrokClient) sendRequest(ctx context.Context, request GrokRequest) (*Gro
 	
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		err := fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		
+		// Enhance error with classification for better retry logic
+		if resp.StatusCode >= 500 {
+			err = fmt.Errorf("server error (retryable): %w", err)
+		} else if resp.StatusCode == 429 {
+			err = fmt.Errorf("rate limit exceeded (retryable): %w", err)
+		} else if resp.StatusCode == 401 {
+			err = fmt.Errorf("unauthorized (non-retryable): %w", err)
+		} else if resp.StatusCode == 403 {
+			err = fmt.Errorf("forbidden (non-retryable): %w", err)
+		} else if resp.StatusCode == 400 {
+			err = fmt.Errorf("bad request (non-retryable): %w", err)
+		}
+		
+		return nil, err
 	}
 	
 	var response GrokResponse
@@ -183,6 +217,26 @@ func (c *GrokClient) ValidateAPIKey(ctx context.Context) error {
 		Stream: false,
 	}
 	
-	_, err := c.sendRequest(ctx, request)
-	return err
+	// Execute with resilience features but minimal retries for validation
+	return c.resilienceManager.Execute(ctx, func() error {
+		_, err := c.sendRequest(ctx, request)
+		return err
+	})
+}
+
+// GetResilienceMetrics returns current resilience metrics
+func (c *GrokClient) GetResilienceMetrics() ResilienceMetrics {
+	return c.resilienceManager.GetMetrics()
+}
+
+// GetCircuitBreakerState returns the current circuit breaker state
+func (c *GrokClient) GetCircuitBreakerState() CircuitState {
+	return c.resilienceManager.GetCircuitBreakerState()
+}
+
+// Close gracefully shuts down the client
+func (c *GrokClient) Close() {
+	if c.resilienceManager != nil {
+		c.resilienceManager.Close()
+	}
 }
