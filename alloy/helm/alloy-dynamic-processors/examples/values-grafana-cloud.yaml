@@ -1,0 +1,171 @@
+# Grafana Cloud optimized values for alloy-dynamic-processors
+# This configuration maximizes Grafana Cloud integration and features
+
+# Alloy configuration optimized for Grafana Cloud
+alloy:
+  image:
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Grafana Cloud optimized configuration
+  config:
+    type: "enhanced-with-sort"
+    env:
+      APP_NAME: "alloy-grafana-cloud"
+      ENVIRONMENT: "cloud"
+      LOG_LEVEL: "info"
+      K8S_CLUSTER_NAME: "grafana-cloud-cluster"
+      CLOUD_REGION: "us-west-2"
+  
+  # Optimized resources for cloud workloads
+  resources:
+    limits:
+      cpu: 1500m
+      memory: 3Gi
+    requests:
+      cpu: 750m
+      memory: 1.5Gi
+  
+  # Cloud-optimized persistence
+  persistence:
+    enabled: true
+    storageClass: "gp3"
+    size: 20Gi
+
+# Full Grafana Cloud integration
+grafanaCloud:
+  enabled: true
+  credentials:
+    # Provide your Grafana Cloud credentials
+    instanceId: "your-instance-id"
+    apiKey: "your-api-key"
+    
+    # Grafana Cloud URLs (update for your region)
+    prometheusUrl: "https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push"
+    tempoUrl: "https://tempo-prod-04-eu-west-0.grafana.net:443"
+    lokiUrl: "https://logs-prod-006.grafana.net/loki/api/v1/push"
+
+# ServiceMonitor for Grafana Cloud Agent integration
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    grafana_agent: "true"
+    cluster: "grafana-cloud-cluster"
+
+# Ingress optimized for Grafana Cloud monitoring
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    # Add Grafana Cloud specific annotations
+    grafana.com/scrape: "true"
+    grafana.com/port: "8889"
+    grafana.com/path: "/metrics"
+  hosts:
+    - host: alloy.grafana-cloud.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          port: http
+  tls:
+    - secretName: grafana-cloud-tls
+      hosts:
+        - alloy.grafana-cloud.example.com
+
+# Optimized autoscaling for cloud workloads
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: 85
+
+# Pod Disruption Budget for cloud reliability
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Network policy for cloud security
+networkPolicy:
+  enabled: true
+  ingress:
+    - from: []  # Allow from all namespaces
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+        - protocol: TCP
+          port: 8889
+
+# Disable local components (using Grafana Cloud instead)
+prometheus:
+  enabled: false
+
+grafana:
+  enabled: false
+
+# Enable comprehensive tests
+tests:
+  enabled: true
+
+# Grafana Cloud specific labels
+commonLabels:
+  environment: grafana-cloud
+  tier: cloud
+  grafana.com/service: "alloy-dynamic-processors"
+  grafana.com/team: "observability"
+
+# Grafana Cloud annotations
+commonAnnotations:
+  description: "Alloy Dynamic Processors optimized for Grafana Cloud"
+  grafana.com/dashboard: "alloy-dynamic-processors"
+  grafana.com/alerts: "enabled"
+  grafana.com/traces: "enabled"
+  grafana.com/logs: "enabled"
+  grafana.com/metrics: "enabled"
+
+# Additional Grafana Cloud optimizations
+alloy:
+  # Cloud-specific node selection
+  nodeSelector:
+    kubernetes.io/arch: "amd64"
+    node.kubernetes.io/instance-type: "c5.large"
+  
+  # Cloud-friendly tolerations
+  tolerations:
+    - key: "cloud-optimized"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  
+  # Anti-affinity for cloud availability zones
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - alloy-dynamic-processors
+            topologyKey: topology.kubernetes.io/zone
+
+# Cloud-optimized service configuration
+alloy:
+  service:
+    type: LoadBalancer
+    annotations:
+      # AWS Load Balancer annotations
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+      # GCP Load Balancer annotations
+      cloud.google.com/load-balancer-type: "Internal"
+      # Azure Load Balancer annotations
+      service.beta.kubernetes.io/azure-load-balancer-internal: "true"

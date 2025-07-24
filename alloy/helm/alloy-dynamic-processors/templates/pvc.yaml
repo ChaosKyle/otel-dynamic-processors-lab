@@ -1,0 +1,27 @@
+{{- if .Values.alloy.persistence.enabled -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "alloy-dynamic-processors.fullname" . }}-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "alloy-dynamic-processors.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+  {{- with .Values.alloy.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    - {{ .Values.alloy.persistence.accessMode }}
+  {{- if .Values.alloy.persistence.storageClass }}
+  {{- if (eq "-" .Values.alloy.persistence.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.alloy.persistence.storageClass }}
+  {{- end }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.alloy.persistence.size }}
+{{- end }}

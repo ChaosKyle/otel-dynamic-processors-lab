@@ -1,0 +1,262 @@
+# Default values for alloy-dynamic-processors
+# This is a YAML-formatted file.
+
+# Global configuration
+global:
+  # Image registry and tag
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+  
+# Grafana Alloy configuration
+alloy:
+  # Image configuration
+  image:
+    registry: docker.io
+    repository: grafana/alloy
+    tag: "latest"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  
+  # Deployment configuration
+  replicaCount: 1
+  
+  # Configuration selection
+  config:
+    # Which Alloy configuration to use
+    # Options: basic, enhanced-with-sort, production
+    type: "enhanced-with-sort"
+    
+    # Custom configuration (overrides type if provided)
+    custom: ""
+    
+    # Environment variables for Alloy
+    env:
+      APP_NAME: "alloy-otel-lab"
+      APP_VERSION: "1.0.0"
+      ENVIRONMENT: "production"
+      SERVICE_NAMESPACE: "monitoring"
+      LOG_LEVEL: "info"
+      
+      # Kubernetes-specific
+      NODE_NAME: ""  # Will be set via fieldPath
+      K8S_CLUSTER_NAME: "k8s-cluster"
+      CLOUD_REGION: "us-west-2"
+      
+      # Resource detection
+      ENABLE_RESOURCE_DETECTION: "true"
+      DETECT_DOCKER: "true"
+      DETECT_SYSTEM: "true"
+      DETECT_PROCESS: "true"
+  
+  # Resource configuration
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  
+  # Node selection
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: false  # Alloy needs root for Docker socket access
+    runAsUser: 0
+    fsGroup: 0
+  
+  # Pod security context
+  podSecurityContext:
+    fsGroup: 0
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    ports:
+      http: 12345      # Alloy HTTP server
+      otlp-grpc: 4317  # OTLP gRPC
+      otlp-http: 4318  # OTLP HTTP
+      health: 13133    # Health check
+      metrics: 8889    # Prometheus metrics
+      zpages: 55679    # zPages
+      pprof: 1777      # pprof
+    annotations: {}
+  
+  # Persistence for Alloy data
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
+    annotations: {}
+  
+  # Liveness and readiness probes
+  livenessProbe:
+    httpGet:
+      path: /-/healthy
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /-/ready
+      port: http
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Grafana Cloud configuration
+grafanaCloud:
+  # Enable Grafana Cloud integration
+  enabled: true
+  
+  # Grafana Cloud credentials (use existing secret or create new)
+  credentials:
+    # Use existing secret
+    existingSecret: ""
+    
+    # Or provide values directly (not recommended for production)
+    instanceId: ""
+    apiKey: ""
+    
+    # Grafana Cloud URLs
+    prometheusUrl: "https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push"
+    tempoUrl: "https://tempo-prod-04-eu-west-0.grafana.net:443"
+    lokiUrl: "https://logs-prod-006.grafana.net/loki/api/v1/push"
+
+# Service Monitor for Prometheus Operator
+serviceMonitor:
+  enabled: true
+  namespace: ""
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+  annotations: {}
+
+# RBAC configuration
+rbac:
+  # Create RBAC resources
+  create: true
+  
+  # Rules for service account
+  rules:
+    - apiGroups: [""]
+      resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["extensions", "networking.k8s.io"]
+      resources: ["ingresses"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["configmaps"]
+      verbs: ["get"]
+    - nonResourceURLs: ["/metrics"]
+      verbs: ["get"]
+
+# Service Account
+serviceAccount:
+  # Create service account
+  create: true
+  
+  # Service account name (if not created, uses existing)
+  name: ""
+  
+  # Annotations for service account
+  annotations: {}
+  
+  # Auto-mount service account token
+  automountServiceAccountToken: true
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: alloy.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          port: http
+  tls: []
+    # - secretName: alloy-tls
+    #   hosts:
+    #     - alloy.example.com
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# Network Policy
+networkPolicy:
+  enabled: false
+  ingress:
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+
+# Local Prometheus (for development/testing)
+prometheus:
+  enabled: false
+  server:
+    persistentVolume:
+      size: 20Gi
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+
+# Local Grafana (for development/testing)  
+grafana:
+  enabled: false
+  adminPassword: "admin"
+  persistence:
+    enabled: true
+    size: 10Gi
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Additional labels for all resources
+commonLabels: {}
+
+# Additional annotations for all resources
+commonAnnotations: {}
+
+# Test pods configuration
+tests:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: curlimages/curl
+    tag: "latest"
+    pullPolicy: IfNotPresent

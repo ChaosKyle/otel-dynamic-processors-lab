@@ -1,0 +1,131 @@
+{{- if .Values.tests.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "alloy-dynamic-processors.fullname" . }}-test-connection"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "alloy-dynamic-processors.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test-connection
+      image: {{ .Values.tests.image.registry }}/{{ .Values.tests.image.repository }}:{{ .Values.tests.image.tag }}
+      imagePullPolicy: {{ .Values.tests.image.pullPolicy }}
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "Testing Alloy health endpoint..."
+          curl -f http://{{ include "alloy-dynamic-processors.fullname" . }}:{{ .Values.alloy.service.ports.health }} || exit 1
+          echo "✓ Health endpoint is responding"
+          
+          echo "Testing OTLP HTTP endpoint..."
+          curl -f -X POST http://{{ include "alloy-dynamic-processors.fullname" . }}:{{ .Values.alloy.service.ports.otlp-http }}/v1/traces \
+            -H "Content-Type: application/json" \
+            -d '{"resourceSpans": []}' || exit 1
+          echo "✓ OTLP HTTP endpoint is accepting data"
+          
+          echo "Testing metrics endpoint..."
+          curl -f http://{{ include "alloy-dynamic-processors.fullname" . }}:{{ .Values.alloy.service.ports.metrics }}/metrics | grep -q "up" || exit 1
+          echo "✓ Metrics endpoint is serving data"
+          
+          echo "Testing Alloy UI endpoint..."
+          curl -f http://{{ include "alloy-dynamic-processors.fullname" . }}:{{ .Values.alloy.service.ports.http }} || exit 1
+          echo "✓ Alloy UI is responding"
+          
+          echo "All tests passed! 🎉"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "alloy-dynamic-processors.fullname" . }}-test-sorting"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "alloy-dynamic-processors.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test-sorting
+      image: {{ .Values.tests.image.registry }}/{{ .Values.tests.image.repository }}:{{ .Values.tests.image.tag }}
+      imagePullPolicy: {{ .Values.tests.image.pullPolicy }}
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "Testing intelligent sorting functionality..."
+          
+          # Send high priority span
+          curl -f -X POST http://{{ include "alloy-dynamic-processors.fullname" . }}:{{ .Values.alloy.service.ports.otlp-http }}/v1/traces \
+            -H "Content-Type: application/json" \
+            -d '{
+              "resourceSpans": [{
+                "resource": {
+                  "attributes": [{
+                    "key": "service.name",
+                    "value": {"stringValue": "payment-service"}
+                  }, {
+                    "key": "k8s.deployment.name", 
+                    "value": {"stringValue": "payment-service"}
+                  }]
+                },
+                "scopeSpans": [{
+                  "spans": [{
+                    "traceId": "0123456789abcdef0123456789abcdef",
+                    "spanId": "0123456789abcdef",
+                    "name": "high-priority-payment",
+                    "startTimeUnixNano": "'$(date +%s%N)'",
+                    "endTimeUnixNano": "'$(date +%s%N)'",
+                    "status": {"code": "STATUS_CODE_ERROR"}
+                  }]
+                }]
+              }]
+            }' || exit 1
+          echo "✓ High priority span sent successfully"
+          
+          # Send low priority span
+          curl -f -X POST http://{{ include "alloy-dynamic-processors.fullname" . }}:{{ .Values.alloy.service.ports.otlp-http }}/v1/traces \
+            -H "Content-Type: application/json" \
+            -d '{
+              "resourceSpans": [{
+                "resource": {
+                  "attributes": [{
+                    "key": "service.name",
+                    "value": {"stringValue": "notification-service"}
+                  }, {
+                    "key": "k8s.deployment.name",
+                    "value": {"stringValue": "notification-service"} 
+                  }]
+                },
+                "scopeSpans": [{
+                  "spans": [{
+                    "traceId": "1123456789abcdef0123456789abcdef",
+                    "spanId": "1123456789abcdef", 
+                    "name": "low-priority-notification",
+                    "startTimeUnixNano": "'$(date +%s%N)'",
+                    "endTimeUnixNano": "'$(date +%s%N)'",
+                    "status": {"code": "STATUS_CODE_OK"}
+                  }]
+                }]
+              }]
+            }' || exit 1
+          echo "✓ Low priority span sent successfully"
+          
+          # Wait for processing
+          sleep 5
+          
+          echo "✓ Sorting functionality test completed"
+          echo "Check Alloy logs and Grafana Cloud for processed spans"
+{{- end }}

@@ -1,0 +1,221 @@
+# Production values for alloy-dynamic-processors
+# This is optimized for production workloads with high availability and security
+
+# Global production settings
+global:
+  imageRegistry: "your-registry.com"
+  imagePullSecrets:
+    - name: registry-secret
+
+# Alloy configuration for production
+alloy:
+  image:
+    registry: "your-registry.com"
+    tag: "v1.0.0"  # Pin to stable version
+    pullPolicy: IfNotPresent
+  
+  # High availability
+  replicaCount: 3
+  
+  # Production configuration
+  config:
+    type: "production"  # Uses grafana-cloud-production.alloy config
+    env:
+      APP_NAME: "alloy-prod-processors"
+      ENVIRONMENT: "production"
+      LOG_LEVEL: "warn"
+      K8S_CLUSTER_NAME: "prod-k8s-cluster"
+      CLOUD_REGION: "us-east-1"
+  
+  # Production resource requirements
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+  
+  # Production persistence
+  persistence:
+    enabled: true
+    storageClass: "fast-ssd"
+    size: 50Gi
+    annotations:
+      volume.beta.kubernetes.io/storage-class: "fast-ssd"
+  
+  # Production security context
+  securityContext:
+    runAsNonRoot: false
+    runAsUser: 0
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+      add:
+        - NET_BIND_SERVICE
+  
+  # Production node placement
+  nodeSelector:
+    node-type: "monitoring"
+    kubernetes.io/arch: "amd64"
+  
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - alloy-dynamic-processors
+          topologyKey: kubernetes.io/hostname
+  
+  tolerations:
+    - key: "monitoring"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  
+  # Production health checks
+  livenessProbe:
+    httpGet:
+      path: /-/healthy
+      port: http
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /-/ready
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Grafana Cloud integration (enabled for production)
+grafanaCloud:
+  enabled: true
+  credentials:
+    # Use existing secret in production
+    existingSecret: "grafana-cloud-credentials"
+    # URLs for production Grafana Cloud
+    prometheusUrl: "https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push"
+    tempoUrl: "https://tempo-prod-04-eu-west-0.grafana.net:443"
+    lokiUrl: "https://logs-prod-006.grafana.net/loki/api/v1/push"
+
+# Production service configuration
+alloy:
+  service:
+    type: ClusterIP
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+
+# Production ServiceMonitor
+serviceMonitor:
+  enabled: true
+  namespace: "monitoring"
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    prometheus: "kube-prometheus"
+
+# Production RBAC with minimal permissions
+rbac:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["extensions", "networking.k8s.io"]
+      resources: ["ingresses"]
+      verbs: ["get", "list", "watch"]
+    - nonResourceURLs: ["/metrics"]
+      verbs: ["get"]
+
+# Production ingress with TLS
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+  hosts:
+    - host: alloy.monitoring.prod.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          port: http
+  tls:
+    - secretName: alloy-tls
+      hosts:
+        - alloy.monitoring.prod.example.com
+
+# Production autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Production Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# Production Network Policy
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              name: default
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8889
+
+# Disable local Prometheus and Grafana in production
+prometheus:
+  enabled: false
+
+grafana:
+  enabled: false
+
+# Disable tests in production
+tests:
+  enabled: false
+
+# Production labels
+commonLabels:
+  environment: production
+  tier: production
+  criticality: high
+  team: platform
+
+# Production annotations
+commonAnnotations:
+  description: "Production deployment of Alloy Dynamic Processors"
+  contact: "platform-team@company.com"
+  runbook: "https://runbooks.company.com/alloy-dynamic-processors"
+  alerting: "https://alerts.company.com/alloy"

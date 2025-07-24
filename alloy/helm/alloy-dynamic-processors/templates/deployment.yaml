@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "alloy-dynamic-processors.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "alloy-dynamic-processors.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alloy
+  {{- with (include "alloy-dynamic-processors.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.alloy.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "alloy-dynamic-processors.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: alloy
+  template:
+    metadata:
+      labels:
+        {{- include "alloy-dynamic-processors.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: alloy
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with (include "alloy-dynamic-processors.annotations" .) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.alloy.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "alloy-dynamic-processors.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.alloy.podSecurityContext | nindent 8 }}
+      containers:
+        - name: alloy
+          image: {{ include "alloy-dynamic-processors.image" . }}
+          imagePullPolicy: {{ .Values.alloy.image.pullPolicy }}
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --storage.path=/var/lib/alloy/data
+          ports:
+            - name: http
+              containerPort: 12345
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+            - name: health
+              containerPort: 13133
+              protocol: TCP
+            - name: metrics
+              containerPort: 8889
+              protocol: TCP
+            - name: zpages
+              containerPort: 55679
+              protocol: TCP
+            - name: pprof
+              containerPort: 1777
+              protocol: TCP
+          env:
+            {{- include "alloy-dynamic-processors.env" . | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/alloy/data
+            {{- if .Values.alloy.config.env.DETECT_DOCKER }}
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+              readOnly: true
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.alloy.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.alloy.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.alloy.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.alloy.securityContext | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "alloy-dynamic-processors.fullname" . }}-config
+        {{- if .Values.alloy.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "alloy-dynamic-processors.fullname" . }}-data
+        {{- else }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- if .Values.alloy.config.env.DETECT_DOCKER }}
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+        {{- end }}
+      {{- with .Values.alloy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.alloy.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.alloy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
