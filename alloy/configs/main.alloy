@@ -1,0 +1,531 @@
+// Grafana Alloy Configuration for OpenTelemetry Dynamic Processors Lab
+// This configuration replicates the OTel Collector functionality using Alloy's River syntax
+
+logging {
+  level  = env("LOG_LEVEL")
+  format = "logfmt"
+}
+
+// =============================================================================
+// DISCOVERY COMPONENTS - Replace OTel Resource Detection
+// =============================================================================
+
+// Docker discovery for container metadata
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "30s"
+  
+  filter {
+    name   = "status"
+    values = ["running"]
+  }
+}
+
+// System discovery for host metadata
+discovery.kubernetes "pods" {
+  role = "pod"
+  
+  selectors {
+    role  = "pod"
+    field = "spec.nodeName=" + env("NODE_NAME")
+  }
+}
+
+// =============================================================================
+// OTEL RECEIVERS
+// =============================================================================
+
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+  
+  output {
+    metrics = [otelcol.processor.memory_limiter.default.input]
+    logs    = [otelcol.processor.memory_limiter.default.input]
+    traces  = [otelcol.processor.memory_limiter.default.input]
+  }
+}
+
+// =============================================================================
+// OTEL PROCESSORS
+// =============================================================================
+
+// Memory limiter - must be first
+otelcol.processor.memory_limiter "default" {
+  limit_mib      = 1024
+  spike_limit_mib = 256
+  check_interval = "1s"
+  
+  output {
+    metrics = [otelcol.processor.resourcedetection.default.input]
+    logs    = [otelcol.processor.resourcedetection.default.input] 
+    traces  = [otelcol.processor.resourcedetection.default.input]
+  }
+}
+
+// Resource detection processor
+otelcol.processor.resourcedetection "default" {
+  detectors = ["docker", "system", "process", "env"]
+  
+  docker {
+    resource_attributes {
+      host_name {
+        enabled = true
+      }
+      os_type {
+        enabled = true
+      }
+      container_image_name {
+        enabled = true
+      }
+      container_image_tag {
+        enabled = true
+      }
+    }
+  }
+  
+  system {
+    resource_attributes {
+      host_name {
+        enabled = true
+      }
+      host_id {
+        enabled = true
+      }
+      host_arch {
+        enabled = true
+      }
+      os_description {
+        enabled = true
+      }
+      os_type {
+        enabled = true
+      }
+    }
+  }
+  
+  process {
+    resource_attributes {
+      process_pid {
+        enabled = true
+      }
+      process_executable_name {
+        enabled = true
+      }
+      process_command_line {
+        enabled = true
+      }
+      process_runtime_name {
+        enabled = true
+      }
+      process_runtime_version {
+        enabled = true
+      }
+    }
+  }
+  
+  output {
+    metrics = [otelcol.processor.resource.default.input]
+    logs    = [otelcol.processor.resource.default.input]
+    traces  = [otelcol.processor.resource.default.input]
+  }
+}
+
+// Resource processor for additional attributes
+otelcol.processor.resource "default" {
+  attributes {
+    action = "upsert"
+    key    = "service.name"
+    value  = env("APP_NAME")
+  }
+  
+  attributes {
+    action = "upsert" 
+    key    = "service.version"
+    value  = env("APP_VERSION")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "service.namespace" 
+    value  = env("SERVICE_NAMESPACE")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "deployment.environment"
+    value  = env("ENVIRONMENT")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "k8s.cluster.name"
+    value  = env("K8S_CLUSTER_NAME")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "cloud.region"
+    value  = env("CLOUD_REGION")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "grafana.cloud.instance"
+    value  = env("GRAFANA_CLOUD_INSTANCE_ID")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "processor.layer"
+    value  = "alloy_smart"
+  }
+  
+  output {
+    metrics = [otelcol.processor.attributes.default.input]
+    logs    = [otelcol.processor.attributes.default.input]
+    traces  = [otelcol.processor.attributes.default.input]
+  }
+}
+
+// Attributes processor for intelligent labeling
+otelcol.processor.attributes "default" {
+  // Create Grafana Cloud labels
+  action {
+    key           = "grafana.service.name"
+    from_attribute = "service.name"
+    action        = "insert"
+  }
+  
+  action {
+    key           = "grafana.environment"
+    from_attribute = "deployment.environment"
+    action        = "insert"
+  }
+  
+  action {
+    key           = "grafana.cluster"
+    from_attribute = "k8s.cluster.name"
+    action        = "insert" 
+  }
+  
+  action {
+    key           = "grafana.region"
+    from_attribute = "cloud.region"
+    action        = "insert"
+  }
+  
+  // Add processing metadata
+  action {
+    key    = "processor.hostname"
+    from_attribute = "host.name"
+    action = "insert"
+  }
+  
+  // Service name normalization using regex
+  action {
+    key     = "service.base_name"
+    from_attribute = "service.name"
+    action  = "extract"
+    pattern = "^(.*)-(dev|staging|prod)$"
+    to_attributes = ["service.base_name", "service.environment"]
+  }
+  
+  // Service type detection
+  action {
+    key     = "service.type"
+    from_attribute = "service.name"
+    action  = "extract"
+    pattern = "^(.+)-(api|web|worker|db)$"
+    to_attributes = ["service.base", "service.type"]
+  }
+  
+  output {
+    metrics = [otelcol.processor.filter.default.input]
+    logs    = [otelcol.processor.filter.default.input]
+    traces  = [otelcol.processor.filter.default.input]
+  }
+}
+
+// Filter processor for environment-based filtering
+otelcol.processor.filter "default" {
+  traces {
+    span {
+      // Drop development traces
+      span_statement = "resource.attributes[\"environment\"] == \"dev\""
+    }
+    
+    span {
+      // Drop dev deployment environment
+      span_statement = "resource.attributes[\"deployment.environment\"] == \"dev\""
+    }
+    
+    span {
+      // Drop test services
+      span_statement = "resource.attributes[\"service.name\"] matches \".*-test\""
+    }
+    
+    span {
+      // Drop health check traces
+      span_statement = "attributes[\"http.url\"] matches \".*/health.*\""
+    }
+  }
+  
+  metrics {
+    metric {
+      // Drop debug metrics
+      metric_statement = "resource.attributes[\"environment\"] == \"dev\""
+    }
+    
+    metric {
+      // Drop high-cardinality debug metrics
+      metric_statement = "name matches \".*debug.*\""
+    }
+  }
+  
+  output {
+    metrics = [otelcol.processor.metricstransform.default.input]
+    logs    = [otelcol.processor.transform.default.input]
+    traces  = [otelcol.processor.transform.default.input]
+  }
+}
+
+// Metrics transformation processor
+otelcol.processor.metricstransform "default" {
+  transforms {
+    include    = ".*"
+    match_type = "regexp"
+    action     = "update"
+    
+    operations {
+      action     = "add_label"
+      new_label  = "grafana_instance"
+      new_value  = env("GRAFANA_CLOUD_INSTANCE_ID")
+    }
+    
+    operations {
+      action     = "add_label"
+      new_label  = "cluster"
+      new_value  = env("K8S_CLUSTER_NAME")
+    }
+    
+    operations {
+      action     = "add_label"
+      new_label  = "environment"
+      new_value  = env("ENVIRONMENT")
+    }
+  }
+  
+  transforms {
+    include    = ".*_total"
+    match_type = "regexp"
+    action     = "update"
+    new_name   = "otel_{{.}}_per_second"
+    
+    operations {
+      action = "experimental_scale_value"
+      value  = 0.016667  // Convert to per-second
+    }
+  }
+  
+  output {
+    metrics = [otelcol.processor.batch.default.input]
+  }
+}
+
+// Transform processor for sorting and additional logic
+otelcol.processor.transform "default" {
+  error_mode = "ignore"
+  
+  trace_statements {
+    // Add sorting metadata
+    statement = "set(attributes[\"sort.timestamp\"], span.start_time)"
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.duration\"], span.end_time - span.start_time)"
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.service\"], resource.attributes[\"service.name\"])"
+  }
+  
+  // Priority scoring for sorting
+  trace_statements {
+    statement = "set(attributes[\"sort.priority\"], 1) where span.status.code == SPAN_STATUS_CODE_OK"
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.priority\"], 2) where span.status.code == SPAN_STATUS_CODE_ERROR"
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.priority\"], 3) where span.status.code == SPAN_STATUS_CODE_UNSET"
+  }
+  
+  // Business priority rules
+  trace_statements {
+    statement = "set(attributes[\"sort.business_priority\"], 10) where resource.attributes[\"service.name\"] == \"payment-service\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.business_priority\"], 8) where resource.attributes[\"service.name\"] == \"user-service\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.business_priority\"], 5) where resource.attributes[\"service.name\"] == \"notification-service\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.business_priority\"], 1) where attributes[\"sort.business_priority\"] == nil"
+  }
+  
+  // Severity-based weighting
+  trace_statements {
+    statement = "set(attributes[\"sort.severity_weight\"], 1) where attributes[\"level\"] == \"DEBUG\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.severity_weight\"], 2) where attributes[\"level\"] == \"INFO\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.severity_weight\"], 3) where attributes[\"level\"] == \"WARN\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.severity_weight\"], 4) where attributes[\"level\"] == \"ERROR\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.severity_weight\"], 5) where attributes[\"level\"] == \"FATAL\""
+  }
+  
+  output {
+    logs   = [otelcol.processor.batch.default.input]
+    traces = [otelcol.processor.batch.default.input]
+  }
+}
+
+// Batch processor for efficient export
+otelcol.processor.batch "default" {
+  send_batch_size     = 1024
+  timeout             = "10s"
+  send_batch_max_size = 2048
+  
+  output {
+    metrics = [otelcol.exporter.otlp.grafana_cloud_tempo.input, otelcol.exporter.prometheus.local.input]
+    logs    = [otelcol.exporter.loki.grafana_cloud.input] 
+    traces  = [otelcol.exporter.otlp.grafana_cloud_tempo.input]
+  }
+}
+
+// =============================================================================
+// OTEL EXPORTERS
+// =============================================================================
+
+// Grafana Cloud Tempo exporter for traces
+otelcol.exporter.otlp "grafana_cloud_tempo" {
+  client {
+    endpoint = env("GRAFANA_CLOUD_TEMPO_URL")
+    
+    auth_extension = otelcol.auth.basic.grafana_cloud.handler
+    
+    tls {
+      insecure = false
+    }
+    
+    sending_queue {
+      enabled      = true
+      num_consumers = 4
+      queue_size   = 200
+    }
+    
+    retry_on_failure {
+      enabled          = true
+      initial_interval = "5s"
+      max_interval     = "30s"
+      max_elapsed_time = "300s"
+    }
+  }
+}
+
+// Grafana Cloud Prometheus exporter for metrics  
+otelcol.exporter.prometheusremotewrite "grafana_cloud" {
+  endpoint = env("GRAFANA_CLOUD_PROMETHEUS_URL")
+  
+  auth_extension = otelcol.auth.basic.grafana_cloud.handler
+  
+  tls {
+    insecure = false
+  }
+  
+  timeout = "30s"
+  
+  retry_on_failure {
+    enabled          = true
+    initial_interval = "5s"
+    max_interval     = "30s" 
+    max_elapsed_time = "300s"
+  }
+  
+  external_labels = {
+    cluster     = env("K8S_CLUSTER_NAME"),
+    environment = env("ENVIRONMENT"),
+    region      = env("CLOUD_REGION"),
+    instance    = env("GRAFANA_CLOUD_INSTANCE_ID"),
+  }
+}
+
+// Grafana Cloud Loki exporter for logs
+otelcol.exporter.loki "grafana_cloud" {
+  endpoint = env("GRAFANA_CLOUD_LOKI_URL")
+  
+  auth_extension = otelcol.auth.basic.grafana_cloud.handler
+  
+  tls {
+    insecure = false
+  }
+}
+
+// Local Prometheus exporter for monitoring
+otelcol.exporter.prometheus "local" {
+  endpoint = "0.0.0.0:8889"
+  
+  const_labels = {
+    processor_type = "alloy_enabled",
+    environment    = env("ENVIRONMENT"),
+    service        = env("APP_NAME"),
+  }
+}
+
+// =============================================================================
+// AUTHENTICATION
+// =============================================================================
+
+// Basic auth for Grafana Cloud
+otelcol.auth.basic "grafana_cloud" {
+  username = env("GRAFANA_CLOUD_INSTANCE_ID")
+  password = env("GRAFANA_CLOUD_API_KEY")
+}
+
+// =============================================================================
+// EXTENSIONS
+// =============================================================================
+
+otelcol.extension.health_check "default" {
+  endpoint = "0.0.0.0:13133"
+}
+
+otelcol.extension.pprof "default" {
+  endpoint = "0.0.0.0:1777"  
+}
+
+otelcol.extension.zpages "default" {
+  endpoint = "0.0.0.0:55679"
+}

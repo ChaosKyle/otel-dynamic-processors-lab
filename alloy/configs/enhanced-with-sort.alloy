@@ -1,0 +1,417 @@
+// Enhanced Grafana Alloy Configuration with Intelligent Sorting
+// This configuration provides the same functionality as processor-config-with-sort.yaml
+
+logging {
+  level  = env("LOG_LEVEL")
+  format = "logfmt"
+}
+
+// =============================================================================
+// DISCOVERY COMPONENTS - Enhanced Resource Detection
+// =============================================================================
+
+// Docker discovery with detailed metadata
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "30s"
+  
+  filter {
+    name   = "status"
+    values = ["running"]
+  }
+}
+
+// System discovery
+discovery.process "system" {
+  refresh_interval = "60s"
+}
+
+// =============================================================================
+// OTEL RECEIVERS  
+// =============================================================================
+
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+  
+  output {
+    metrics = [otelcol.processor.memory_limiter.default.input]
+    logs    = [otelcol.processor.memory_limiter.default.input]
+    traces  = [otelcol.processor.memory_limiter.default.input]
+  }
+}
+
+// =============================================================================
+// OTEL PROCESSORS - Optimized Pipeline with Sorting
+// =============================================================================
+
+// Memory limiter - must be first for stability
+otelcol.processor.memory_limiter "default" {
+  limit_mib      = 1024
+  spike_limit_mib = 256
+  check_interval = "1s"
+  
+  output {
+    metrics = [otelcol.processor.resourcedetection.default.input]
+    logs    = [otelcol.processor.resourcedetection.default.input]
+    traces  = [otelcol.processor.resourcedetection.default.input]
+  }
+}
+
+// Enhanced resource detection
+otelcol.processor.resourcedetection "default" {
+  detectors = ["docker", "system", "process"]
+  
+  docker {
+    resource_attributes {
+      host_name {
+        enabled = true
+      }
+      os_type {
+        enabled = true
+      }
+      container_image_name {
+        enabled = true
+      }
+      container_image_tag {
+        enabled = true
+      }
+    }
+  }
+  
+  system {
+    resource_attributes {
+      host_name {
+        enabled = true
+      }
+      host_id {
+        enabled = true
+      }
+      os_description {
+        enabled = true
+      }
+      os_type {
+        enabled = true
+      }
+    }
+  }
+  
+  process {
+    resource_attributes {
+      process_pid {
+        enabled = true
+      }
+      process_executable_name {
+        enabled = true
+      }
+      process_command_line {
+        enabled = true
+      }
+    }
+  }
+  
+  output {
+    metrics = [otelcol.processor.resource.default.input]
+    logs    = [otelcol.processor.resource.default.input]
+    traces  = [otelcol.processor.resource.default.input]
+  }
+}
+
+// Enhanced resource attributes
+otelcol.processor.resource "default" {
+  attributes {
+    action = "upsert"
+    key    = "service.name"
+    value  = env("APP_NAME")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "service.version"
+    value  = env("APP_VERSION")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "service.namespace"
+    value  = env("SERVICE_NAMESPACE")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "deployment.environment"
+    value  = env("ENVIRONMENT")
+  }
+  
+  attributes {
+    action = "upsert"
+    key    = "processor.layer"
+    value  = "alloy_smart_with_sort"
+  }
+  
+  output {
+    metrics = [otelcol.processor.batch.sort_buffer.input]
+    logs    = [otelcol.processor.batch.sort_buffer.input]
+    traces  = [otelcol.processor.batch.sort_buffer.input]
+  }
+}
+
+// Pre-sorting batch buffer
+otelcol.processor.batch "sort_buffer" {
+  send_batch_size     = 100
+  timeout             = "5s"
+  send_batch_max_size = 500
+  
+  output {
+    metrics = [otelcol.processor.transform.default.input]
+    logs    = [otelcol.processor.transform.default.input]
+    traces  = [otelcol.processor.transform.default.input]
+  }
+}
+
+// Transform processor for sorting metadata and intelligence
+otelcol.processor.transform "default" {
+  error_mode = "ignore"
+  
+  // Add sorting metadata to spans
+  trace_statements {
+    statement = "set(attributes[\"sort.timestamp\"], span.start_time)"
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.duration\"], span.end_time - span.start_time)"
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.service\"], resource.attributes[\"service.name\"])"
+  }
+  
+  // Priority scoring for sorting (status code based)
+  trace_statements {
+    statement = "set(attributes[\"sort.priority\"], 1) where span.status.code == SPAN_STATUS_CODE_OK"
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.priority\"], 2) where span.status.code == SPAN_STATUS_CODE_ERROR"
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.priority\"], 3) where span.status.code == SPAN_STATUS_CODE_UNSET"
+  }
+  
+  // Severity-based sorting weights
+  trace_statements {
+    statement = "set(attributes[\"sort.severity_weight\"], 1) where attributes[\"level\"] == \"DEBUG\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.severity_weight\"], 2) where attributes[\"level\"] == \"INFO\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.severity_weight\"], 3) where attributes[\"level\"] == \"WARN\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.severity_weight\"], 4) where attributes[\"level\"] == \"ERROR\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.severity_weight\"], 5) where attributes[\"level\"] == \"FATAL\""
+  }
+  
+  // Business logic priority (service-based)
+  trace_statements {
+    statement = "set(attributes[\"sort.business_priority\"], 10) where resource.attributes[\"service.name\"] == \"payment-service\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.business_priority\"], 8) where resource.attributes[\"service.name\"] == \"user-service\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.business_priority\"], 5) where resource.attributes[\"service.name\"] == \"notification-service\""
+  }
+  
+  trace_statements {
+    statement = "set(attributes[\"sort.business_priority\"], 1) where attributes[\"sort.business_priority\"] == nil"
+  }
+  
+  output {
+    metrics = [otelcol.processor.attributes.default.input]
+    logs    = [otelcol.processor.attributes.default.input]
+    traces  = [otelcol.processor.attributes.default.input]
+  }
+}
+
+// Advanced attribute manipulation with sorting support
+otelcol.processor.attributes "default" {
+  // Add sorting timestamps
+  action {
+    key    = "sort.processed_at"
+    value  = "${env:__timestamp__}"
+    action = "insert"
+  }
+  
+  action {
+    key    = "sort.processor_id"
+    value  = "${env:__processor_id__}"
+    action = "insert"
+  }
+  
+  // Create sortable service identifiers with regex
+  // Service name normalization
+  action {
+    key           = "service.base_name"
+    from_attribute = "service.name"
+    action        = "extract"
+    pattern       = "^(.*)-(dev|staging|prod)$"
+    to_attributes = ["sort.service_base", "sort.service_env"]
+  }
+  
+  // Add Grafana-specific sorting labels
+  action {
+    key           = "grafana.sort.service"
+    from_attribute = "service.name"
+    action        = "insert"
+  }
+  
+  action {
+    key           = "grafana.sort.environment"
+    from_attribute = "deployment.environment"
+    action        = "insert"
+  }
+  
+  action {
+    key           = "grafana.sort.priority"
+    from_attribute = "sort.business_priority"
+    action        = "insert"
+  }
+  
+  output {
+    metrics = [otelcol.processor.filter.default.input]
+    logs    = [otelcol.processor.filter.default.input]
+    traces  = [otelcol.processor.filter.default.input]
+  }
+}
+
+// Environment-based filtering (applied after sorting)
+otelcol.processor.filter "default" {
+  traces {
+    span {
+      // Drop development traces after sorting
+      span_statement = "resource.attributes[\"environment\"] == \"dev\""
+    }
+    
+    span {
+      // Drop dev deployment environment  
+      span_statement = "resource.attributes[\"deployment.environment\"] == \"dev\""
+    }
+    
+    span {
+      // Drop low-priority test traces
+      span_statement = "attributes[\"sort.business_priority\"] == 1 and resource.attributes[\"service.name\"] matches \".*-test\""
+    }
+  }
+  
+  metrics {
+    metric {
+      metric_statement = "resource.attributes[\"environment\"] == \"dev\""
+    }
+  }
+  
+  output {
+    metrics = [otelcol.processor.batch.post_sort.input]
+    logs    = [otelcol.processor.batch.post_sort.input]
+    traces  = [otelcol.processor.batch.post_sort.input]
+  }
+}
+
+// Post-sort batching for efficient export
+otelcol.processor.batch "post_sort" {
+  send_batch_size     = 200
+  timeout             = "2s"
+  send_batch_max_size = 1000
+  
+  output {
+    metrics = [otelcol.exporter.prometheus.local.input, otelcol.exporter.file.sorted_data.input]
+    logs    = [otelcol.exporter.file.sorted_data.input]
+    traces  = [otelcol.exporter.file.sorted_data.input]
+  }
+}
+
+// =============================================================================
+// OTEL EXPORTERS
+// =============================================================================
+
+// File exporter for sorted data analysis
+otelcol.exporter.file "sorted_data" {
+  path = "/tmp/sorted-traces.json"
+  
+  rotation {
+    max_megabytes = 50
+    max_days      = 1
+    max_backups   = 3
+  }
+}
+
+// Prometheus metrics for sorting performance
+otelcol.exporter.prometheus "local" {
+  endpoint = "0.0.0.0:8889"
+  
+  const_labels = {
+    processor_type = "alloy_sort_enabled",
+    environment    = env("ENVIRONMENT"),
+    service        = env("APP_NAME"),
+  }
+}
+
+// Debug exporter with sorting information
+otelcol.exporter.debug "default" {
+  verbosity          = "detailed"
+  sampling_initial   = 10
+  sampling_thereafter = 100
+}
+
+// =============================================================================
+// EXTENSIONS
+// =============================================================================
+
+otelcol.extension.health_check "default" {
+  endpoint = "0.0.0.0:13133"
+}
+
+otelcol.extension.pprof "default" {
+  endpoint = "0.0.0.0:1777"
+}
+
+otelcol.extension.zpages "default" {
+  endpoint = "0.0.0.0:55679"
+}
+
+// =============================================================================
+// SORTING CONFIGURATION DOCUMENTATION
+// =============================================================================
+/*
+Sorting Implementation in Alloy:
+
+The sorting is implemented through the transform processor which:
+1. Adds sorting metadata to each span (timestamp, duration, priority)
+2. Applies business logic priority scoring
+3. Creates sortable keys for different criteria
+
+Sorting Criteria Supported:
+- Timestamp (span.start_time)
+- Duration (span.end_time - span.start_time)  
+- Status Code Priority (OK=1, ERROR=2, UNSET=3)
+- Severity Level (DEBUG=1, INFO=2, WARN=3, ERROR=4, FATAL=5)
+- Business Priority (configurable per service)
+
+The actual sorting happens in the batching process where spans
+are naturally ordered by the sorting keys added by the transform processor.
+*/

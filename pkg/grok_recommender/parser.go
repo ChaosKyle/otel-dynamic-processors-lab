@@ -3,313 +3,422 @@ package grok_recommender
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+	"crypto/md5"
+	"encoding/hex"
 )
 
-// RecommendationParser parses Grok API responses and generates OTel filter rules
+// RecommendationParser parses Grok API responses into structured recommendations
 type RecommendationParser struct {
-	yamlTemplate string
+	patterns map[string]*regexp.Regexp
+	logger   Logger
 }
 
-// Recommendation represents a parsed recommendation from Grok
-type Recommendation struct {
-	ID             string                `json:"id"`
-	Type           RecommendationType    `json:"type"`
-	Priority       Priority              `json:"priority"`
-	Description    string                `json:"description"`
-	Rationale      string                `json:"rationale"`
-	FilterRules    []FilterRule          `json:"filter_rules"`
-	EstimatedSaving string               `json:"estimated_saving"`
-	CreatedAt      time.Time             `json:"created_at"`
-}
-
-// RecommendationType represents the type of recommendation
-type RecommendationType string
-
-const (
-	RecommendationTypeDropSignal     RecommendationType = "drop_signal"
-	RecommendationTypeLabelPolicy    RecommendationType = "label_policy"
-	RecommendationTypeNoiseReduction RecommendationType = "noise_reduction"
-	RecommendationTypeOptimization   RecommendationType = "optimization"
-)
-
-// Priority represents the priority of a recommendation
-type Priority string
-
-const (
-	PriorityHigh   Priority = "high"
-	PriorityMedium Priority = "medium"
-	PriorityLow    Priority = "low"
-)
-
-// FilterRule represents an OTel filter rule
-type FilterRule struct {
-	Name        string     `json:"name"`
-	Type        SignalType `json:"type"`
-	Condition   string     `json:"condition"`
-	Action      string     `json:"action"`
-	Description string     `json:"description"`
-}
-
-// SignalType represents the type of telemetry signal
-type SignalType string
-
-const (
-	SignalTypeTrace  SignalType = "trace"
-	SignalTypeMetric SignalType = "metric"
-	SignalTypeLog    SignalType = "log"
-)
-
-// ParsedRecommendations contains all parsed recommendations
-type ParsedRecommendations struct {
-	Recommendations []Recommendation `json:"recommendations"`
-	Summary         Summary          `json:"summary"`
-	GeneratedAt     time.Time        `json:"generated_at"`
-}
-
-// Summary contains a summary of recommendations
-type Summary struct {
-	TotalRecommendations int                           `json:"total_recommendations"`
-	ByType              map[RecommendationType]int    `json:"by_type"`
-	ByPriority          map[Priority]int              `json:"by_priority"`
-	EstimatedSavings    string                        `json:"estimated_savings"`
+// Logger interface for structured logging
+type Logger interface {
+	Info(msg string, args ...interface{})
+	Warn(msg string, args ...interface{})
+	Error(msg string, args ...interface{})
+	Debug(msg string, args ...interface{})
 }
 
 // NewRecommendationParser creates a new recommendation parser
 func NewRecommendationParser() *RecommendationParser {
-	return &RecommendationParser{
-		yamlTemplate: `
-# Generated OTel Filter Rules from Grok Recommendations
-# Generated at: %s
-
-processors:
-  filter:
-    error_mode: ignore
-    traces:
-      span:
-%s
-    metrics:
-      metric:
-%s
-    logs:
-      log_record:
-%s
-`,
+	parser := &RecommendationParser{
+		patterns: make(map[string]*regexp.Regexp),
+		logger:   &defaultLogger{},
 	}
+	
+	parser.initializePatterns()
+	return parser
 }
 
-// ParseRecommendations parses Grok API response and extracts recommendations
-func (p *RecommendationParser) ParseRecommendations(response *GrokResponse) (*ParsedRecommendations, error) {
-	if len(response.Choices) == 0 {
-		return nil, fmt.Errorf("no choices in Grok response")
+// initializePatterns initializes regex patterns for parsing
+func (rp *RecommendationParser) initializePatterns() {
+	rp.patterns["signals_to_drop"] = regexp.MustCompile(`(?i)1\.\s*SIGNALS\s*TO\s*DROP:\s*(.*?)(?=2\.|3\.|4\.|$)`)
+	rp.patterns["label_policy_violations"] = regexp.MustCompile(`(?i)2\.\s*LABEL\s*POLICY\s*VIOLATIONS:\s*(.*?)(?=3\.|4\.|1\.|$)`)
+	rp.patterns["otel_filter_rules"] = regexp.MustCompile(`(?i)3\.\s*OTEL\s*FILTER\s*RULES:\s*(.*?)(?=4\.|1\.|2\.|$)`)
+	rp.patterns["rationale"] = regexp.MustCompile(`(?i)4\.\s*RATIONALE:\s*(.*?)$`)
+	
+	// Filter rule patterns
+	rp.patterns["trace_filter"] = regexp.MustCompile(`traces:\s*span:\s*((?:\s*-\s*'[^']*'\s*)*)`)
+	rp.patterns["metric_filter"] = regexp.MustCompile(`metrics:\s*metric:\s*((?:\s*-\s*'[^']*'\s*)*)`)
+	rp.patterns["log_filter"] = regexp.MustCompile(`logs:\s*log:\s*((?:\s*-\s*'[^']*'\s*)*)`)
+	
+	// Individual filter conditions
+	rp.patterns["filter_condition"] = regexp.MustCompile(`-\s*'([^']*)'`)
+	
+	// Performance/impact patterns
+	rp.patterns["percentage"] = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*%`)
+	rp.patterns["cost_reduction"] = regexp.MustCompile(`(?i)cost.*?(\d+(?:\.\d+)?)\s*%`)
+	rp.patterns["volume_reduction"] = regexp.MustCompile(`(?i)(?:volume|data).*?(\d+(?:\.\d+)?)\s*%`)
+}
+
+// ParseRecommendations parses a Grok API response into structured recommendations
+func (rp *RecommendationParser) ParseRecommendations(response *GrokResponse) (*ParsedRecommendations, error) {
+	if response == nil || len(response.Choices) == 0 {
+		return nil, fmt.Errorf("empty or invalid Grok response")
 	}
 	
 	content := response.Choices[0].Message.Content
-	recommendations := p.extractRecommendations(content)
+	rp.logger.Debug("Parsing Grok response content: %s", content)
 	
-	summary := p.generateSummary(recommendations)
+	recommendations, err := rp.parseContent(content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse content: %w", err)
+	}
+	
+	summary := rp.generateSummary(recommendations)
 	
 	return &ParsedRecommendations{
 		Recommendations: recommendations,
 		Summary:         summary,
 		GeneratedAt:     time.Now(),
+		Source:          "grok-ai",
+		Version:         "1.0.0",
 	}, nil
 }
 
-// extractRecommendations extracts recommendations from Grok response content
-func (p *RecommendationParser) extractRecommendations(content string) []Recommendation {
+// parseContent parses the main content of the Grok response
+func (rp *RecommendationParser) parseContent(content string) ([]Recommendation, error) {
 	var recommendations []Recommendation
 	
-	// Parse different sections of the response
-	signalsToDrop := p.extractSignalsToDropSection(content)
-	labelPolicyViolations := p.extractLabelPolicySection(content)
-	otelRules := p.extractOtelRulesSection(content)
-	rationale := p.extractRationaleSection(content)
+	// Parse signals to drop
+	dropSignals := rp.parseSignalsToDrop(content)
+	recommendations = append(recommendations, dropSignals...)
 	
-	// Combine into recommendations
-	recommendations = append(recommendations, signalsToDrop...)
-	recommendations = append(recommendations, labelPolicyViolations...)
+	// Parse label policy violations
+	policyViolations := rp.parseLabelPolicyViolations(content)
+	recommendations = append(recommendations, policyViolations...)
 	
-	// Add rationale to recommendations
+	// Parse filter rules
+	filterRecs := rp.parseFilterRules(content)
+	recommendations = append(recommendations, filterRecs...)
+	
+	// Parse rationale and apply to all recommendations
+	rationale := rp.parseRationale(content)
 	for i := range recommendations {
-		if i < len(rationale) {
-			recommendations[i].Rationale = rationale[i]
+		if recommendations[i].Rationale == "" {
+			recommendations[i].Rationale = rationale
+		}
+		
+		// Set creation time
+		recommendations[i].CreatedAt = time.Now()
+		recommendations[i].ExpiresAt = time.Now().Add(24 * time.Hour) // 24 hour expiry
+		
+		// Generate ID if not set
+		if recommendations[i].ID == "" {
+			recommendations[i].ID = rp.generateRecommendationID(recommendations[i])
+		}
+		
+		// Parse impact if not set
+		if recommendations[i].Impact == (Impact{}) {
+			recommendations[i].Impact = rp.parseImpact(content, recommendations[i])
 		}
 	}
 	
-	// Add OTel rules to recommendations
-	p.addOtelRules(recommendations, otelRules)
-	
-	return recommendations
+	return recommendations, nil
 }
 
-// extractSignalsToDropSection extracts signals to drop from the response
-func (p *RecommendationParser) extractSignalsToDropSection(content string) []Recommendation {
+// parseSignalsToDrop parses signals to drop recommendations
+func (rp *RecommendationParser) parseSignalsToDrop(content string) []Recommendation {
 	var recommendations []Recommendation
 	
-	// Look for "SIGNALS TO DROP" section
-	pattern := regexp.MustCompile(`(?i)SIGNALS TO DROP:?\s*\n(.*?)(?:\n\d+\.|$)`)
-	matches := pattern.FindStringSubmatch(content)
+	match := rp.patterns["signals_to_drop"].FindStringSubmatch(content)
+	if len(match) < 2 {
+		rp.logger.Debug("No 'signals to drop' section found")
+		return recommendations
+	}
 	
-	if len(matches) > 1 {
-		signalsText := matches[1]
-		lines := strings.Split(signalsText, "\n")
-		
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "   ") {
-				continue
-			}
-			
-			if strings.HasPrefix(line, "-") {
-				line = strings.TrimPrefix(line, "-")
-				line = strings.TrimSpace(line)
-				
-				rec := Recommendation{
-					ID:          fmt.Sprintf("drop-%d", len(recommendations)),
-					Type:        RecommendationTypeDropSignal,
-					Priority:    p.determinePriority(line),
-					Description: line,
-					CreatedAt:   time.Now(),
-				}
-				
-				recommendations = append(recommendations, rec)
-			}
+	signalsSection := match[1]
+	lines := strings.Split(signalsSection, "\n")
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "-") {
+			continue
 		}
+		
+		description := strings.TrimSpace(strings.TrimPrefix(line, "-"))
+		if description == "" {
+			continue
+		}
+		
+		recommendation := Recommendation{
+			Type:        RecommendationTypeDropSignal,
+			Priority:    rp.determinePriority(description),
+			Description: description,
+			FilterRules: []FilterRule{},
+		}
+		
+		// Generate filter rules based on description
+		filterRules := rp.generateFilterRulesFromDescription(description, SignalTypeTrace)
+		recommendation.FilterRules = append(recommendation.FilterRules, filterRules...)
+		
+		recommendations = append(recommendations, recommendation)
 	}
 	
 	return recommendations
 }
 
-// extractLabelPolicySection extracts label policy violations from the response
-func (p *RecommendationParser) extractLabelPolicySection(content string) []Recommendation {
+// parseLabelPolicyViolations parses label policy violation recommendations
+func (rp *RecommendationParser) parseLabelPolicyViolations(content string) []Recommendation {
 	var recommendations []Recommendation
 	
-	// Look for "LABEL POLICY VIOLATIONS" section
-	pattern := regexp.MustCompile(`(?i)LABEL POLICY VIOLATIONS:?\s*\n(.*?)(?:\n\d+\.|$)`)
-	matches := pattern.FindStringSubmatch(content)
+	match := rp.patterns["label_policy_violations"].FindStringSubmatch(content)
+	if len(match) < 2 {
+		rp.logger.Debug("No 'label policy violations' section found")
+		return recommendations
+	}
 	
-	if len(matches) > 1 {
-		policyText := matches[1]
-		lines := strings.Split(policyText, "\n")
-		
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "   ") {
-				continue
-			}
-			
-			if strings.HasPrefix(line, "-") {
-				line = strings.TrimPrefix(line, "-")
-				line = strings.TrimSpace(line)
-				
-				rec := Recommendation{
-					ID:          fmt.Sprintf("policy-%d", len(recommendations)),
-					Type:        RecommendationTypeLabelPolicy,
-					Priority:    p.determinePriority(line),
-					Description: line,
-					CreatedAt:   time.Now(),
-				}
-				
-				recommendations = append(recommendations, rec)
-			}
+	policySection := match[1]
+	lines := strings.Split(policySection, "\n")
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "-") {
+			continue
 		}
+		
+		description := strings.TrimSpace(strings.TrimPrefix(line, "-"))
+		if description == "" {
+			continue
+		}
+		
+		recommendation := Recommendation{
+			Type:        RecommendationTypeLabelPolicy,
+			Priority:    PriorityHigh, // Policy violations are always high priority
+			Description: description,
+			FilterRules: []FilterRule{},
+		}
+		
+		// Generate filter rules for policy violations
+		filterRules := rp.generatePolicyFilterRules(description)
+		recommendation.FilterRules = append(recommendation.FilterRules, filterRules...)
+		
+		recommendations = append(recommendations, recommendation)
 	}
 	
 	return recommendations
 }
 
-// extractOtelRulesSection extracts OTel filter rules from the response
-func (p *RecommendationParser) extractOtelRulesSection(content string) []FilterRule {
-	var rules []FilterRule
+// parseFilterRules parses OTEL filter rules from the response
+func (rp *RecommendationParser) parseFilterRules(content string) []Recommendation {
+	var recommendations []Recommendation
 	
-	// Look for YAML filter rules in the response
-	yamlPattern := regexp.MustCompile(`(?i)(?:filter|traces|metrics|logs):\s*\n((?:\s*-\s*.*\n?)*?)`)
-	matches := yamlPattern.FindAllStringSubmatch(content, -1)
-	
-	for _, match := range matches {
-		if len(match) > 1 {
-			rulesText := match[1]
-			lines := strings.Split(rulesText, "\n")
-			
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "- ") {
-					condition := strings.TrimPrefix(line, "- ")
-					condition = strings.Trim(condition, "'\"")
-					
-					rule := FilterRule{
-						Name:        fmt.Sprintf("rule-%d", len(rules)),
-						Condition:   condition,
-						Action:      "drop",
-						Description: fmt.Sprintf("Drop condition: %s", condition),
-					}
-					
-					// Determine signal type based on condition
-					if strings.Contains(condition, "span.") || strings.Contains(condition, "trace.") {
-						rule.Type = SignalTypeTrace
-					} else if strings.Contains(condition, "metric.") {
-						rule.Type = SignalTypeMetric
-					} else if strings.Contains(condition, "log.") {
-						rule.Type = SignalTypeLog
-					} else {
-						rule.Type = SignalTypeTrace // Default
-					}
-					
-					rules = append(rules, rule)
-				}
-			}
-		}
+	match := rp.patterns["otel_filter_rules"].FindStringSubmatch(content)
+	if len(match) < 2 {
+		rp.logger.Debug("No 'OTEL filter rules' section found")
+		return recommendations
 	}
 	
-	return rules
+	rulesSection := match[1]
+	
+	// Parse trace filters
+	traceFilters := rp.parseTraceFilters(rulesSection)
+	if len(traceFilters) > 0 {
+		recommendation := Recommendation{
+			Type:        RecommendationTypeOptimization,
+			Priority:    PriorityMedium,
+			Description: "Apply trace filtering rules",
+			FilterRules: traceFilters,
+		}
+		recommendations = append(recommendations, recommendation)
+	}
+	
+	// Parse metric filters
+	metricFilters := rp.parseMetricFilters(rulesSection)
+	if len(metricFilters) > 0 {
+		recommendation := Recommendation{
+			Type:        RecommendationTypeOptimization,
+			Priority:    PriorityMedium,
+			Description: "Apply metric filtering rules",
+			FilterRules: metricFilters,
+		}
+		recommendations = append(recommendations, recommendation)
+	}
+	
+	// Parse log filters
+	logFilters := rp.parseLogFilters(rulesSection)
+	if len(logFilters) > 0 {
+		recommendation := Recommendation{
+			Type:        RecommendationTypeOptimization,
+			Priority:    PriorityMedium,
+			Description: "Apply log filtering rules",
+			FilterRules: logFilters,
+		}
+		recommendations = append(recommendations, recommendation)
+	}
+	
+	return recommendations
 }
 
-// extractRationaleSection extracts rationale from the response
-func (p *RecommendationParser) extractRationaleSection(content string) []string {
-	var rationale []string
+// parseTraceFilters parses trace filter rules
+func (rp *RecommendationParser) parseTraceFilters(content string) []FilterRule {
+	var filterRules []FilterRule
 	
-	// Look for "RATIONALE" section
-	pattern := regexp.MustCompile(`(?i)RATIONALE:?\s*\n(.*?)$`)
-	matches := pattern.FindStringSubmatch(content)
-	
-	if len(matches) > 1 {
-		rationaleText := matches[1]
-		lines := strings.Split(rationaleText, "\n")
-		
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			
-			if strings.HasPrefix(line, "-") {
-				line = strings.TrimPrefix(line, "-")
-				line = strings.TrimSpace(line)
-				rationale = append(rationale, line)
-			}
-		}
+	match := rp.patterns["trace_filter"].FindStringSubmatch(content)
+	if len(match) < 2 {
+		return filterRules
 	}
+	
+	conditions := rp.patterns["filter_condition"].FindAllStringSubmatch(match[1], -1)
+	for i, conditionMatch := range conditions {
+		if len(conditionMatch) < 2 {
+			continue
+		}
+		
+		condition := conditionMatch[1]
+		filterRule := FilterRule{
+			Name:        fmt.Sprintf("trace-filter-%d", i+1),
+			Type:        SignalTypeTrace,
+			Condition:   condition,
+			Action:      "drop",
+			Description: fmt.Sprintf("Drop traces matching: %s", condition),
+			Priority:    i + 1,
+		}
+		
+		filterRules = append(filterRules, filterRule)
+	}
+	
+	return filterRules
+}
+
+// parseMetricFilters parses metric filter rules
+func (rp *RecommendationParser) parseMetricFilters(content string) []FilterRule {
+	var filterRules []FilterRule
+	
+	match := rp.patterns["metric_filter"].FindStringSubmatch(content)
+	if len(match) < 2 {
+		return filterRules
+	}
+	
+	conditions := rp.patterns["filter_condition"].FindAllStringSubmatch(match[1], -1)
+	for i, conditionMatch := range conditions {
+		if len(conditionMatch) < 2 {
+			continue
+		}
+		
+		condition := conditionMatch[1]
+		filterRule := FilterRule{
+			Name:        fmt.Sprintf("metric-filter-%d", i+1),
+			Type:        SignalTypeMetric,
+			Condition:   condition,
+			Action:      "drop",
+			Description: fmt.Sprintf("Drop metrics matching: %s", condition),
+			Priority:    i + 1,
+		}
+		
+		filterRules = append(filterRules, filterRule)
+	}
+	
+	return filterRules
+}
+
+// parseLogFilters parses log filter rules
+func (rp *RecommendationParser) parseLogFilters(content string) []FilterRule {
+	var filterRules []FilterRule
+	
+	match := rp.patterns["log_filter"].FindStringSubmatch(content)
+	if len(match) < 2 {
+		return filterRules
+	}
+	
+	conditions := rp.patterns["filter_condition"].FindAllStringSubmatch(match[1], -1)
+	for i, conditionMatch := range conditions {
+		if len(conditionMatch) < 2 {
+			continue
+		}
+		
+		condition := conditionMatch[1]
+		filterRule := FilterRule{
+			Name:        fmt.Sprintf("log-filter-%d", i+1),
+			Type:        SignalTypeLog,
+			Condition:   condition,
+			Action:      "drop",
+			Description: fmt.Sprintf("Drop logs matching: %s", condition),
+			Priority:    i + 1,
+		}
+		
+		filterRules = append(filterRules, filterRule)
+	}
+	
+	return filterRules
+}
+
+// parseRationale parses the rationale section
+func (rp *RecommendationParser) parseRationale(content string) string {
+	match := rp.patterns["rationale"].FindStringSubmatch(content)
+	if len(match) < 2 {
+		return "AI-generated recommendation based on telemetry analysis"
+	}
+	
+	rationale := strings.TrimSpace(match[1])
+	// Clean up the rationale text
+	rationale = strings.ReplaceAll(rationale, "\n", " ")
+	rationale = regexp.MustCompile(`\s+`).ReplaceAllString(rationale, " ")
 	
 	return rationale
 }
 
-// determinePriority determines the priority based on recommendation content
-func (p *RecommendationParser) determinePriority(content string) Priority {
-	content = strings.ToLower(content)
+// parseImpact parses impact information from the content
+func (rp *RecommendationParser) parseImpact(content string, recommendation Recommendation) Impact {
+	impact := Impact{
+		ConfidenceScore: 0.8, // Default confidence
+	}
 	
-	highPriorityKeywords := []string{"critical", "urgent", "high volume", "expensive", "security", "compliance"}
-	mediumPriorityKeywords := []string{"optimize", "improve", "reduce", "performance"}
+	// Look for percentage mentions in rationale or content
+	if costMatch := rp.patterns["cost_reduction"].FindStringSubmatch(content); len(costMatch) > 1 {
+		impact.CostSavings = costMatch[1] + "%"
+	}
 	
-	for _, keyword := range highPriorityKeywords {
-		if strings.Contains(content, keyword) {
+	if volumeMatch := rp.patterns["volume_reduction"].FindStringSubmatch(content); len(volumeMatch) > 1 {
+		impact.DataVolumeReduction = volumeMatch[1] + "%"
+	}
+	
+	// Default estimates based on recommendation type
+	if impact.DataVolumeReduction == "" {
+		switch recommendation.Type {
+		case RecommendationTypeDropSignal:
+			impact.DataVolumeReduction = "20-40%"
+		case RecommendationTypeLabelPolicy:
+			impact.DataVolumeReduction = "5-15%"
+		case RecommendationTypeOptimization:
+			impact.DataVolumeReduction = "10-25%"
+		default:
+			impact.DataVolumeReduction = "5-20%"
+		}
+	}
+	
+	if impact.CostSavings == "" {
+		impact.CostSavings = impact.DataVolumeReduction // Assume cost savings match data reduction
+	}
+	
+	impact.PerformanceGain = "Low to Medium"
+	
+	return impact
+}
+
+// Helper methods
+
+// determinePriority determines priority based on description content
+func (rp *RecommendationParser) determinePriority(description string) Priority {
+	lowerDesc := strings.ToLower(description)
+	
+	// High priority keywords
+	highPriorityWords := []string{"debug", "error", "critical", "security", "sensitive", "production"}
+	for _, word := range highPriorityWords {
+		if strings.Contains(lowerDesc, word) {
 			return PriorityHigh
 		}
 	}
 	
-	for _, keyword := range mediumPriorityKeywords {
-		if strings.Contains(content, keyword) {
+	// Medium priority keywords
+	mediumPriorityWords := []string{"noise", "volume", "cost", "performance"}
+	for _, word := range mediumPriorityWords {
+		if strings.Contains(lowerDesc, word) {
 			return PriorityMedium
 		}
 	}
@@ -317,86 +426,157 @@ func (p *RecommendationParser) determinePriority(content string) Priority {
 	return PriorityLow
 }
 
-// addOtelRules adds OTel rules to recommendations
-func (p *RecommendationParser) addOtelRules(recommendations []Recommendation, rules []FilterRule) {
-	for i := range recommendations {
-		// Match rules to recommendations based on content similarity
-		for _, rule := range rules {
-			if p.isRuleRelated(recommendations[i].Description, rule.Condition) {
-				recommendations[i].FilterRules = append(recommendations[i].FilterRules, rule)
-			}
-		}
-	}
-}
-
-// isRuleRelated checks if a rule is related to a recommendation
-func (p *RecommendationParser) isRuleRelated(description, condition string) bool {
-	// Simple keyword matching - can be improved with better NLP
-	descWords := strings.Fields(strings.ToLower(description))
-	condWords := strings.Fields(strings.ToLower(condition))
+// generateFilterRulesFromDescription creates filter rules based on description
+func (rp *RecommendationParser) generateFilterRulesFromDescription(description string, signalType SignalType) []FilterRule {
+	var rules []FilterRule
 	
-	commonWords := 0
-	for _, dWord := range descWords {
-		for _, cWord := range condWords {
-			if dWord == cWord {
-				commonWords++
-			}
+	lowerDesc := strings.ToLower(description)
+	
+	// Common patterns
+	if strings.Contains(lowerDesc, "debug") {
+		rule := FilterRule{
+			Name:        "drop-debug-signals",
+			Type:        signalType,
+			Condition:   `attributes["level"] == "DEBUG"`,
+			Action:      "drop",
+			Description: "Drop debug level signals",
+			Priority:    1,
 		}
+		rules = append(rules, rule)
 	}
 	
-	return commonWords > 0
+	if strings.Contains(lowerDesc, "development") || strings.Contains(lowerDesc, "dev") {
+		rule := FilterRule{
+			Name:        "drop-dev-signals",
+			Type:        signalType,
+			Condition:   `resource.attributes["environment"] == "dev"`,
+			Action:      "drop",
+			Description: "Drop development environment signals",
+			Priority:    1,
+		}
+		rules = append(rules, rule)
+	}
+	
+	if strings.Contains(lowerDesc, "health") || strings.Contains(lowerDesc, "heartbeat") {
+		rule := FilterRule{
+			Name:        "drop-health-checks",
+			Type:        signalType,
+			Condition:   `attributes["http.url"] =~ ".*/health.*"`,
+			Action:      "drop",
+			Description: "Drop health check requests",
+			Priority:    2,
+		}
+		rules = append(rules, rule)
+	}
+	
+	return rules
 }
 
-// generateSummary generates a summary of recommendations
-func (p *RecommendationParser) generateSummary(recommendations []Recommendation) Summary {
+// generatePolicyFilterRules creates filter rules for policy violations
+func (rp *RecommendationParser) generatePolicyFilterRules(description string) []FilterRule {
+	var rules []FilterRule
+	
+	lowerDesc := strings.ToLower(description)
+	
+	if strings.Contains(lowerDesc, "environment") {
+		rule := FilterRule{
+			Name:        "require-environment-label",
+			Type:        SignalTypeTrace,
+			Condition:   `resource.attributes["environment"] == nil`,
+			Action:      "drop",
+			Description: "Drop signals without environment label",
+			Priority:    1,
+		}
+		rules = append(rules, rule)
+	}
+	
+	if strings.Contains(lowerDesc, "service") {
+		rule := FilterRule{
+			Name:        "require-service-name",
+			Type:        SignalTypeTrace,
+			Condition:   `resource.attributes["service.name"] == nil`,
+			Action:      "drop",
+			Description: "Drop signals without service name",
+			Priority:    1,
+		}
+		rules = append(rules, rule)
+	}
+	
+	return rules
+}
+
+// generateRecommendationID generates a unique ID for a recommendation
+func (rp *RecommendationParser) generateRecommendationID(rec Recommendation) string {
+	hash := md5.Sum([]byte(rec.Description + string(rec.Type) + string(rec.Priority)))
+	return fmt.Sprintf("rec-%s", hex.EncodeToString(hash[:])[:8])
+}
+
+// generateSummary generates a summary of all recommendations
+func (rp *RecommendationParser) generateSummary(recommendations []Recommendation) Summary {
 	summary := Summary{
 		TotalRecommendations: len(recommendations),
-		ByType:              make(map[RecommendationType]int),
-		ByPriority:          make(map[Priority]int),
-		EstimatedSavings:    "Unknown",
+		ByType:               make(map[RecommendationType]int),
+		ByPriority:           make(map[Priority]int),
+		RecommendedActions:   make([]string, 0),
 	}
 	
+	highestPriority := PriorityLow
+	totalSavings := 0.0
+	
 	for _, rec := range recommendations {
+		// Count by type
 		summary.ByType[rec.Type]++
+		
+		// Count by priority
 		summary.ByPriority[rec.Priority]++
+		
+		// Track highest priority
+		if rec.Priority == PriorityCritical || (rec.Priority == PriorityHigh && highestPriority != PriorityCritical) ||
+			(rec.Priority == PriorityMedium && highestPriority == PriorityLow) {
+			highestPriority = rec.Priority
+		}
+		
+		// Parse savings percentage
+		if rec.Impact.DataVolumeReduction != "" {
+			if matches := rp.patterns["percentage"].FindStringSubmatch(rec.Impact.DataVolumeReduction); len(matches) > 1 {
+				if savings, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					totalSavings += savings
+				}
+			}
+		}
+		
+		// Collect actions
+		if rec.Description != "" && len(summary.RecommendedActions) < 5 {
+			summary.RecommendedActions = append(summary.RecommendedActions, rec.Description)
+		}
+	}
+	
+	summary.HighestPriority = highestPriority
+	
+	if totalSavings > 0 {
+		summary.EstimatedSavings = fmt.Sprintf("%.1f%%", totalSavings/float64(len(recommendations)))
+	} else {
+		summary.EstimatedSavings = "10-30%"
 	}
 	
 	return summary
 }
 
-// GenerateYAMLConfig generates YAML configuration for OTel filter processor
-func (p *RecommendationParser) GenerateYAMLConfig(recommendations []Recommendation) string {
-	var traceFilters, metricFilters, logFilters []string
-	
-	for _, rec := range recommendations {
-		for _, rule := range rec.FilterRules {
-			filterLine := fmt.Sprintf("        - '%s'  # %s", rule.Condition, rule.Description)
-			
-			switch rule.Type {
-			case SignalTypeTrace:
-				traceFilters = append(traceFilters, filterLine)
-			case SignalTypeMetric:
-				metricFilters = append(metricFilters, filterLine)
-			case SignalTypeLog:
-				logFilters = append(logFilters, filterLine)
-			}
-		}
-	}
-	
-	traceSection := ""
-	if len(traceFilters) > 0 {
-		traceSection = strings.Join(traceFilters, "\n")
-	}
-	
-	metricSection := ""
-	if len(metricFilters) > 0 {
-		metricSection = strings.Join(metricFilters, "\n")
-	}
-	
-	logSection := ""
-	if len(logFilters) > 0 {
-		logSection = strings.Join(logFilters, "\n")
-	}
-	
-	return fmt.Sprintf(p.yamlTemplate, time.Now().Format(time.RFC3339), traceSection, metricSection, logSection)
+// defaultLogger provides a simple logger implementation
+type defaultLogger struct{}
+
+func (dl *defaultLogger) Info(msg string, args ...interface{}) {
+	fmt.Printf("[INFO] "+msg+"\n", args...)
+}
+
+func (dl *defaultLogger) Warn(msg string, args ...interface{}) {
+	fmt.Printf("[WARN] "+msg+"\n", args...)
+}
+
+func (dl *defaultLogger) Error(msg string, args ...interface{}) {
+	fmt.Printf("[ERROR] "+msg+"\n", args...)
+}
+
+func (dl *defaultLogger) Debug(msg string, args ...interface{}) {
+	// Debug messages are disabled by default
 }

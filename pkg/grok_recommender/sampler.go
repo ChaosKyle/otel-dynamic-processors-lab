@@ -110,23 +110,68 @@ func NewDataAnonymizer() *DataAnonymizer {
 	}
 }
 
-// SampleTraces samples and anonymizes trace data
+// SampleTraces samples and anonymizes trace data using intelligent sampling
 func (s *TelemetrySampler) SampleTraces(traces []TraceSpan) []TraceSpan {
 	if len(traces) <= s.maxSampleSize {
 		return s.anonymizeTraces(traces)
 	}
 	
-	// Random sampling
-	rand.Seed(time.Now().UnixNano())
+	// Intelligent sampling: prioritize errors, warnings, and slow traces
+	errorTraces := []TraceSpan{}
+	slowTraces := []TraceSpan{}
+	normalTraces := []TraceSpan{}
+	
+	for _, trace := range traces {
+		if trace.Status == "ERROR" || trace.Status == "FAILED" {
+			errorTraces = append(errorTraces, trace)
+		} else if trace.Duration > time.Second {
+			slowTraces = append(slowTraces, trace)
+		} else {
+			normalTraces = append(normalTraces, trace)
+		}
+	}
+	
 	sampled := make([]TraceSpan, 0, s.maxSampleSize)
 	
-	for len(sampled) < s.maxSampleSize && len(traces) > 0 {
-		idx := rand.Intn(len(traces))
-		sampled = append(sampled, traces[idx])
-		traces = append(traces[:idx], traces[idx+1:]...)
+	// Prioritize error traces (up to 40% of sample)
+	errorSampleSize := min(len(errorTraces), s.maxSampleSize*40/100)
+	sampled = append(sampled, s.randomSampleTraces(errorTraces, errorSampleSize)...)
+	
+	// Then slow traces (up to 30% of remaining sample)
+	remaining := s.maxSampleSize - len(sampled)
+	if remaining > 0 {
+		slowSampleSize := min(len(slowTraces), remaining*30/100)
+		sampled = append(sampled, s.randomSampleTraces(slowTraces, slowSampleSize)...)
+	}
+	
+	// Fill remaining with normal traces
+	remaining = s.maxSampleSize - len(sampled)
+	if remaining > 0 {
+		sampled = append(sampled, s.randomSampleTraces(normalTraces, remaining)...)
 	}
 	
 	return s.anonymizeTraces(sampled)
+}
+
+// randomSampleTraces performs random sampling on a trace slice
+func (s *TelemetrySampler) randomSampleTraces(traces []TraceSpan, sampleSize int) []TraceSpan {
+	if len(traces) <= sampleSize {
+		return traces
+	}
+	
+	rand.Seed(time.Now().UnixNano())
+	sampled := make([]TraceSpan, 0, sampleSize)
+	
+	// Fisher-Yates shuffle for better randomness
+	shuffled := make([]TraceSpan, len(traces))
+	copy(shuffled, traces)
+	
+	for i := len(shuffled) - 1; i > 0; i-- {
+		j := rand.Intn(i + 1)
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	}
+	
+	return shuffled[:sampleSize]
 }
 
 // SampleMetrics samples and anonymizes metric data
@@ -292,4 +337,20 @@ func FromJSON(jsonData string) (*TelemetrySample, error) {
 		return nil, fmt.Errorf("failed to unmarshal JSON to sample: %w", err)
 	}
 	return &sample, nil
+}
+
+// Helper functions
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
