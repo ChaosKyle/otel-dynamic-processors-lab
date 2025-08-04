@@ -1,0 +1,89 @@
+# Example Terraform Variables Configuration
+# Copy this file to terraform.tfvars and customize for your environment
+
+# Infrastructure Configuration
+kubeconfig_path = "~/.kube/config"
+kube_context    = ""  # Leave empty for default context
+namespace       = "otel-system"
+deployment_name = "otel-dynamic-processors"
+environment     = "dev"  # dev, staging, prod
+app_version     = "1.0.0"
+
+# Grafana Configuration
+grafana_url                   = "https://your-grafana-instance.grafana.net"
+grafana_api_key              = "your-grafana-api-key-here"
+grafana_cloud_instance_id    = "123456"
+grafana_cloud_api_key        = "glc_your_cloud_api_key_here"
+grafana_cloud_prometheus_url = "https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push"
+grafana_cloud_tempo_url      = "https://tempo-prod-04-eu-west-0.grafana.net:443"
+grafana_cloud_loki_url       = "https://loki-prod-04-eu-west-0.grafana.net/loki/api/v1/push"
+
+# OpenTelemetry Configuration
+otel_collector_image = "otel/opentelemetry-collector-contrib:0.89.0"
+otel_processor_image = "otel/opentelemetry-collector-contrib:0.89.0"
+enable_grok_processor = true
+grok_api_key         = "your-grok-api-key-here"
+
+# Filter Processor Enforcement Configuration
+enable_pii_filtering         = true
+enable_cost_optimization     = true
+enable_security_compliance   = true
+max_cardinality_threshold    = 1000
+retention_days              = 30
+allowed_environments        = ["prod", "production"]
+
+required_labels = [
+  "environment",
+  "service.name",
+  "service.version"
+]
+
+forbidden_patterns = [
+  "password",
+  "secret",
+  "api[_-]?key",
+  "token",
+  "ssn",
+  "credit[_-]?card",
+  "social[_-]?security"
+]
+
+# Resource Configuration
+collector_resources = {
+  requests = {
+    cpu    = "100m"
+    memory = "128Mi"
+  }
+  limits = {
+    cpu    = "500m"
+    memory = "512Mi"
+  }
+}
+
+processor_resources = {
+  requests = {
+    cpu    = "200m"
+    memory = "256Mi"
+  }
+  limits = {
+    cpu    = "1000m"
+    memory = "1Gi"
+  }
+}
+
+# Autoscaling Configuration
+enable_autoscaling       = true
+min_replicas            = 2
+max_replicas            = 10
+target_cpu_utilization  = 70
+
+# Monitoring Configuration
+enable_metrics = true
+enable_tracing = true
+enable_logging = true
+log_level     = "info"  # debug, info, warn, error
+
+# Dashboard Configuration
+create_dashboards    = true
+dashboard_folder     = "OpenTelemetry"
+alert_contact_points = ["slack-alerts", "email-alerts"]
